@@ -1,0 +1,2 @@
+allowBuilds:
+  node-llama-cpp: true
