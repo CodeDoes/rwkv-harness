@@ -2,9 +2,15 @@
   "name": "rwkv-harness",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "tell": "tsx cli.ts tell",
+    "interactive": "tsx cli.ts interactive",
+    "chapter": "tsx cli.ts chapter",
+    "plan": "tsx cli.ts plan",
+    "continue": "tsx cli.ts continue",
+    "checkpoint": "tsx cli.ts checkpoint",
+    "state-info": "tsx cli.ts state-info",
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [],
   "author": "",
@@ -18,11 +24,14 @@
   },
   "type": "module",
   "dependencies": {
+    "@node-llama-cpp/linux-x64-vulkan": "^3.18.1",
+    "filesniffer": "^1.0.3",
     "node-llama-cpp": "^3.18.1",
-    "yargs": "^18.0.0"
+    "simple-grep": "^0.0.1",
+    "typescript": "^6.0.3"
   },
   "devDependencies": {
     "@types/node": "^26.0.1",
-    "@types/yargs": "^17.0.35"
+    "tsx": "^4.22.4"
   }
 }
