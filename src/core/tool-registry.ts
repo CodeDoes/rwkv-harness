@@ -86,13 +86,14 @@ function toolNamesGbnf(defs: ToolDef[]): string {
 
 function toolCallGbnf(names: string): string[] {
   return [
-    `root ::= text? tool-call | "\\n\\n"`,
+    `root ::= (think-block? ws)? text? ws tool-call`,
+    'think-block ::= "<think>" ([^<] | "<" [^/])* "</think>"',
     'text ::= [^<]+',
-    'name-property ::= "\\"name\\"" ws ":" ws "\\"" tool-name "\\""',
+    'tool-call ::= "<" + "tool_call" + ">" ws "{" ws name-property ws args-property ws "}" ws "</" + "tool_call" + ">"',
+    'name-property ::= "\\"name\\"" ws ":" ws "\"" tool-name "\""',
     'args-property ::= "\\"args\\"" ws ":" ws "{" ws [^}]* "}"',
     `tool-name ::= ${names}`,
     'ws ::= [ \\t\\n]*',
-
   ]
 }
 
@@ -103,12 +104,9 @@ export function toolsToGbnf(defs?: ToolDef[]): string {
 export function toolsToGbnfWithThink(defs?: ToolDef[]): string {
   const names = toolNamesGbnf(defs ?? toolDefs)
   return [
-    `root ::= think-block? text? tool-call | "\\n\\n"`,
-    'think-block ::= "<think>" [^<]* "</think>" ',
-    ...toolCallGbnf(names).slice(1), // drop root, use the one above
-    ...toolCallGbnf(names).slice(2),
-
-    'text ::= [^<]+',
+    `root ::= (think-block? ws)? text? ws tool-call`,
+    ...toolCallGbnf(names).slice(1),
+  ].join("\n")
 }
 
 export function toolsToGbnfResponse(): string {
