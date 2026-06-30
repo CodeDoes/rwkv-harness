@@ -29,51 +29,29 @@ export class TraceWriter {
     }
   }
 
-  write(line: string) {
-    this.emit(line)
+  infoAbout(label: string, data: Record<string, string>) {
+    this.emit("")
+    this.emit(`--- ${label} ---`)
+    for (const [k, v] of Object.entries(data)) {
+      this.emit(`  ${k}: ${v}`)
+    }
   }
 
-  section(label: string) {
+  infoSection(label: string) {
     this.emit("")
     this.emit(`--- ${label} ---`)
   }
 
-  depth(n: number, tag = "") {
-    const suffix = tag ? ` (${tag})` : ""
+  inputBlock(text: string) {
     this.emit("")
-    this.emit(`-- depth ${n}${suffix} --`)
+    this.emit(`--- input ---`)
+    this.emit(text.replace(/\x03/g, "\\x03"))
   }
 
-  stream(text: string) {
+  outputStream(text: string) {
     if (this.fd !== null) {
-      fs.writeSync(this.fd, text)
+      fs.writeSync(this.fd, text.replace(/\x03/g, "\\x03"))
     }
-  }
-
-generate(text: string) {
-    this.emit(`[generate]\n${text}`)
-  }
-
-  toolCall(name: string, args: Record<string, unknown>) {
-    const argsStr = JSON.stringify(args, null, 2)
-    this.emit(`[tool_call] ${name} ${argsStr}`)
-  }
-
-  toolResult(name: string, success: boolean, data: unknown, error?: string) {
-    const dataStr = JSON.stringify(data ?? null)
-    if (error) {
-      this.emit(`[tool_result] ${name} success=${success} error=${error}`)
-    } else {
-      this.emit(`[tool_result] ${name} success=${success} data=${dataStr}`)
-    }
-  }
-
-  userInput(text: string) {
-    this.emit(`[user] ${text}`)
-  }
-
-  systemPrompt(text: string) {
-    this.emit(`[system] ${text}`)
   }
 
   verification(checks: { name: string; pass: boolean }[]) {

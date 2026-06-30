@@ -53,6 +53,7 @@ export class EngineHTTPClient implements Engine {
   }
 
   async generateStream(prompt: string, callbacks?: GenerateCallbacks, opts?: Record<string, unknown>): Promise<string> {
+    console.error(`[HTTP-CLIENT] POST ${this.url}/v1/stream, prompt len: ${prompt.length}, opts: ${JSON.stringify(opts).slice(0, 200)}`)
     const res = await fetch(`${this.url}/v1/stream`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -64,21 +65,27 @@ export class EngineHTTPClient implements Engine {
         ...opts,
       }),
     })
+    console.error(`[HTTP-CLIENT] response status: ${res.status}, has body: ${!!res.body}`)
     if (!res.ok || !res.body) throw new Error(`stream: ${res.status}`)
     const reader = res.body.getReader()
     const dec = new TextDecoder()
     let buf = ""
     let out = ""
+    let eventCount = 0
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
-      buf += dec.decode(value, { stream: true })
+      const chunk = dec.decode(value, { stream: true })
+      console.error(`[HTTP-CLIENT] received chunk: ${chunk.length} chars`)
+      buf += chunk
       const events = buf.split("\n\n")
       buf = events.pop() ?? ""
       for (const ev of events) {
+        eventCount++
         const line = ev.split("\n").find((l) => l.startsWith("data:"))
         if (!line) continue
         const data = line.slice(5).trim()
+        console.error(`[HTTP-CLIENT] event ${eventCount}: ${data.slice(0, 100)}`)
         try {
           const msg = JSON.parse(data) as { type: string; text?: string; error?: string }
           if (msg.type === "token" && msg.text) {

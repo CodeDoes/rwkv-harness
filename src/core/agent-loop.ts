@@ -49,7 +49,7 @@ export class AgentLoop {
     sess.status = "active"
 
     const history = this.session.buildPrompt(this.buildSystemPrompt(), true)
-    let fullPrompt = history + "User: " + userInput + "\n\nAssistant: "
+    let fullPrompt = history + "User: " + userInput + "\n\nAssistant:"
     let finalText = ""
     let depth = 0
 
@@ -72,7 +72,7 @@ export class AgentLoop {
       for (const call of toolCalls) {
         const result = await this.execTool(call)
         const resultBlock = this.formatToolResult(result)
-        fullPrompt += raw + "\n\nUser: " + resultBlock + "\n\nAssistant: "
+        fullPrompt += raw + "\n\nUser: " + resultBlock + "\n\nAssistant:"
       }
       await this.session.save()
       depth++

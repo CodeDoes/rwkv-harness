@@ -15,7 +15,11 @@
     "agent": "tsx cli.ts agent",
     "eval": "tsx src/eval/story-creation.eval.ts",
     "eval:live": "tsx src/eval/story-creation.eval.ts --live",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "inference:start": "tsx inference-server.ts --port=3210 --slots-dir=inference-slots/3210 > inference.log 2>&1 &",
+    "inference:stop": "[ -f inference-3210.pid ] && kill $(cat inference-3210.pid) && rm -f inference-3210.pid || echo 'no pid file'",
+    "inference:restart": "pnpm inference:stop; sleep 2 && pnpm inference:start",
+    "inference:log": "tail -f inference.log"
   },
   "keywords": [],
   "author": "",

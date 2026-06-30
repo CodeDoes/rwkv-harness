@@ -10,7 +10,7 @@ import { ToolCall, ToolResult, ToolDef, ToolHandler, DEFAULT_GEN_OPTS, type Engi
 import { bootEngine, EngineHTTPClient } from "../engine/engine-http-client.ts"
 import mkdirTool from "../tools/mkdir.ts"
 import { TraceWriter } from "./trace-writer.ts"
-import { toolsToGbnf } from "../core/tool-registry.ts"
+import { toolsToGbnfWithThink } from "../core/tool-registry.ts"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PROJECT_ROOT = path.resolve(__dirname, "../..")
@@ -84,32 +84,32 @@ async function runAgentLoop(
 ): Promise<{ finalText: string; toolCallCount: number }> {
   // RWKV7 function calling format: System: ... User: ... Assistant: ...
   // Temp 0, top_p 0, penalty 0 for function calling per HF guide
-  let fullPrompt = systemPrompt + "\n\nUser: " + userInput + "\n\nAssistant: "
+  let fullPrompt = systemPrompt + "\n\nUser: " + userInput + "\n\nAssistant:"
   let finalText = ""
   let toolCallCount = 0
   const { onToolCall, trace, tag, genOpts } = opts ?? {}
 
   for (let depth = 0; depth < maxDepth; depth++) {
-    trace?.depth(depth, tag)
-    trace?.write(`[input] (prompt, ${fullPrompt.length} chars)`)
+    const depthLabel = tag ? `depth ${depth} (${tag})` : `depth ${depth}`
+    trace?.infoSection(depthLabel)
+    trace?.infoAbout("input", { chars: String(fullPrompt.length) })
 
     let raw: string
     if ("generateStream" in engine) {
-      trace?.write("[output_start]")
       let accumulated = ""
       await engine.generateStream(fullPrompt, {
         onText: (chunk: string) => {
           accumulated += chunk
-          trace?.stream(chunk)
+          trace?.outputStream(chunk)
           process.stdout.write(chunk)
         },
-      }, { ...DEFAULT_GEN_OPTS, temperature: 0, topP: 0, repeatPenalty: 0, stopSequences: ["</tool_call>", "\x03"], ...genOpts } as any)
-      trace?.write("[output_end]")
+      }, { ...DEFAULT_GEN_OPTS, temperature: 0, topP: 0, repeatPenalty: 0, stopSequences: ["", "\x03"], ...genOpts } as any)
       raw = accumulated.replace(/\x03/g, "")
       opts?.onText?.(raw)
     } else {
-      raw = (await engine.generate(fullPrompt, { ...DEFAULT_GEN_OPTS, temperature: 0, topP: 0, repeatPenalty: 0, stopSequences: ["</tool_call>", "\x03"], ...genOpts } as any)).replace(/\x03/g, "")
-      trace?.generate(raw)
+      raw = (await engine.generate(fullPrompt, { ...DEFAULT_GEN_OPTS, temperature: 0, topP: 0, repeatPenalty: 0, stopSequences: ["", "\x03"], ...genOpts } as any)).replace(/\x03/g, "")
+      trace?.infoSection("output")
+      trace?.outputStream(raw)
       opts?.onText?.(raw)
     }
 
@@ -117,13 +117,13 @@ async function runAgentLoop(
     finalText += text
 
     if (toolCalls.length === 0) {
-      trace?.write("[result] no tool calls, exiting loop")
+      trace?.infoAbout("result", { status: "no tool calls, exiting loop" })
       return { finalText, toolCallCount }
     }
 
     for (const call of toolCalls) {
       toolCallCount++
-      trace?.toolCall(call.name, call.args)
+      trace?.infoAbout("tool_call", { name: call.name, args: JSON.stringify(call.args) })
       const handler = toolHandlers[call.name]
       let result: ToolResult
       if (!handler) {
@@ -138,9 +138,11 @@ async function runAgentLoop(
         }
       }
       onToolCall?.(call.name, result.success)
-      trace?.toolResult(call.name, result.success, result.data, result.error)
+      const resultInfo: Record<string, string> = { name: call.name, success: String(result.success) }
+      if (result.error) resultInfo.error = result.error
+      trace?.infoAbout("tool_result", resultInfo)
       const resultBlock = formatToolResult(result)
-      fullPrompt += raw + "\n\nUser: " + resultBlock + "\n\nAssistant: "
+      fullPrompt += raw + "\n\nUser: " + resultBlock + "\n\nAssistant:"
     }
   }
 
@@ -170,14 +172,14 @@ User: Write a program to sort a list
 Assistant: Let me delegate this to the coder agent.
 
 <tool_call>
-{"name": "spawn_agent", "args": {"agent": "coder", "task": "Write a Python program to sort a list of numbers using quicksort.", "workspace": "workspace/sort"}}
+{"name": "spawn_agent", "args": {"agent": "coder", "task": "Write a program to sort a list. Write files to workspace/sort/"}}
 </tool_call>
 
 User: Create a story about a wizard
 Assistant: I'll delegate this to the storyteller.
 
 <tool_call>
-{"name": "spawn_agent", "args": {"agent": "storyteller", "task": "Create a story about a wizard with 3 chapters and wiki entries. Write files to workspace/wizard-tale/", "workspace": "workspace/wizard-tale"}}
+{"name": "spawn_agent", "args": {"agent": "storyteller", "task": "Create a story about a wizard. Write files to workspace/wizard-tale/"}}
 </tool_call>`
 }
 
@@ -273,17 +275,17 @@ async function runOracle(baseDir: string, W: (p: string) => string): Promise<boo
   //   Phase B (sub-loop — storyteller): 12 tool calls + done
   //   Phase C (main loop — envoy): final response
   const mockResponses = [
-    // Phase A: Envoy spawns storyteller
-    makeToolCall("spawn_agent", { agent: "storyteller", task: jobTask, workspace: storyPath }),
+    // Phase A: Envoy spawns storyteller (matches prompt example pattern)
+    `I'll delegate this to the storyteller.\n` + makeToolCall("spawn_agent", { agent: "storyteller", task: jobTask, workspace: storyPath }),
 
-    // Phase B: Storyteller creates the story (12 tool calls)
-    makeToolCall("ls", { path: W("workspace") }),
-    makeToolCall("mkdir", { path: W("workspace/dragons") }),
-    makeToolCall("write", { path: W("workspace/dragons/_plan.md"), content: PLAN_CONTENT }),
-    makeToolCall("write", { path: W("workspace/dragons/chapter-001.md"), content: CH1_CONTENT }),
-    makeToolCall("write", { path: W("workspace/dragons/chapter-002.md"), content: CH2_CONTENT }),
-    makeToolCall("write", { path: W("workspace/dragons/chapter-003.md"), content: CH3_CONTENT }),
-    makeToolCall("mkdir", { path: W("workspace/dragons/wiki/character") }),
+    // Phase B: Storyteller creates the story (matches storyteller prompt examples)
+    `Let me check what exists first.\n` + makeToolCall("ls", { path: W("workspace") }),
+    `The workspace is empty. I'll set up the story directory.\n` + makeToolCall("mkdir", { path: W("workspace/dragons") }),
+    `Now I'll write the story plan.\n` + makeToolCall("write", { path: W("workspace/dragons/_plan.md"), content: PLAN_CONTENT }),
+    `Writing chapter 1.\n` + makeToolCall("write", { path: W("workspace/dragons/chapter-001.md"), content: CH1_CONTENT }),
+    `Writing chapter 2.\n` + makeToolCall("write", { path: W("workspace/dragons/chapter-002.md"), content: CH2_CONTENT }),
+    `Writing chapter 3.\n` + makeToolCall("write", { path: W("workspace/dragons/chapter-003.md"), content: CH3_CONTENT }),
+    `Creating wiki directories.\n` + makeToolCall("mkdir", { path: W("workspace/dragons/wiki/character") }),
     makeToolCall("write", { path: W("workspace/dragons/wiki/character/eryndor.md"), content: WIKI_ERYNDOR }),
     makeToolCall("mkdir", { path: W("workspace/dragons/wiki/location") }),
     makeToolCall("write", { path: W("workspace/dragons/wiki/location/dragon-peak.md"), content: WIKI_DRAGON_PEAK }),
@@ -297,19 +299,17 @@ async function runOracle(baseDir: string, W: (p: string) => string): Promise<boo
   ]
 
   const trace = new TraceWriter("oracle").open()
+  trace.infoAbout("run", { mode: "oracle", baseDir })
   const engine = new MockEngine(mockResponses)
-const userInput = "Create a story about dragons with 3 first chapters and an up-to-date wiki."
-// Tool handlers for the storyteller sub-loop
-const storytellerHandlersWithMkdir: Record<string, ToolHandler> = {
-...storytellerHandlers,
-mkdir: (args) => mkdirTool({ path: args.path as string }),
-}
+  const userInput = "Create a story about dragons with 3 first chapters and an up-to-date wiki."
+  const storytellerHandlersWithMkdir: Record<string, ToolHandler> = {
+    ...storytellerHandlers,
+    mkdir: (args) => mkdirTool({ path: args.path as string }),
+  }
 
-// ── Main loop (envoy) ──
-const envoyPrompt = buildEnvoyPrompt()
-trace.systemPrompt(envoyPrompt)
-trace.userInput(userInput)
-let subToolCalls = 0
+  const envoyPrompt = buildEnvoyPrompt()
+  trace.inputBlock(envoyPrompt + "\n\nUser: " + userInput + "\n\nAssistant:")
+  let subToolCalls = 0
 
 
   const mainResult = await runAgentLoop(
@@ -318,8 +318,8 @@ let subToolCalls = 0
     {
       spawn_agent: async (args) => {
         const task = args.task as string
-        trace.section(`spawn_agent: storyteller`)
-        trace.write(`task: ${task}`)
+        trace.infoSection("spawn_agent: storyteller")
+        trace.infoAbout("task", { description: task })
         console.error(`  ENVOY spawned "${args.agent}" with task: ${task.slice(0, 60)}...`)
 
         // Run storyteller sub-loop (consumes next mock responses)
@@ -352,7 +352,7 @@ let subToolCalls = 0
     },
     userInput,
     10,
-    { trace, tag: "envoy" },
+    { trace, tag: "envoy", genOpts: { grammar: toolsToGbnfWithThink(envoyToolDefs) } },
   )
 
   console.error(`\nEnvoy tool calls: 1 (spawn_agent)`)
@@ -420,8 +420,8 @@ async function runLive(baseDir: string, W: (p: string) => string, args: string[]
   const { engine, close } = await bootEngine({ modelPath, gpu })
   const engineClient = engine as EngineHTTPClient
 
-  const envoyGrammar = toolsToGbnf(envoyToolDefs)
-  const storytellerGrammar = toolsToGbnf(storytellerToolDefs)
+  const envoyGrammar = toolsToGbnfWithThink(envoyToolDefs)
+  const storytellerGrammar = toolsToGbnfWithThink(storytellerToolDefs)
 
   const envoyPrompt = buildEnvoyPrompt()
   const userInput = "Create a story about dragons with 3 first chapters and an up-to-date wiki."
@@ -434,15 +434,17 @@ async function runLive(baseDir: string, W: (p: string) => string, args: string[]
   const storytellerPrompt = buildStorytellerPrompt(storytellerToolDefs)
 
   const trace = new TraceWriter("live").open()
-  trace.userInput(userInput)
-  trace.systemPrompt(envoyPrompt)
-  trace.write(`model: ${path.basename(modelPath)}`)
-  trace.write(`gpu: ${gpu}`)
-  if (engineClient.loraAdapters.length) {
-    const names = engineClient.loraAdapters.map(a => a.filePath).join(", ")
-    trace.write(`lora: ${names}`)
+  const infoData: Record<string, string> = {
+    model: path.basename(modelPath),
+    gpu,
+    workspace: baseDir,
   }
-  trace.write(`mose experts: none`)
+  if (engineClient.loraAdapters.length) {
+    infoData.lora = engineClient.loraAdapters.map(a => a.filePath).join(", ")
+  }
+  infoData.mose = "none"
+  trace.infoAbout("run", infoData)
+  trace.inputBlock(envoyPrompt + "\n\nUser: " + userInput + "\n\nAssistant:")
 
   const result = await runAgentLoop(
     engine as Engine,
@@ -450,9 +452,10 @@ async function runLive(baseDir: string, W: (p: string) => string, args: string[]
     {
       spawn_agent: async (args) => {
         const task = args.task as string
-        trace.section(`spawn_agent: storyteller`)
-        trace.write(`task: ${task}`)
-        trace.systemPrompt(storytellerPrompt)
+        trace.infoSection("spawn_agent: storyteller")
+        trace.infoAbout("task", { description: task })
+        trace.infoSection("storyteller system")
+        trace.outputStream(storytellerPrompt)
         console.error(`\nENVOY spawned "${args.agent}"`)
         const subSession = new SessionManager(baseDir, "storyteller-dragons", modelPath)
         await subSession.ensureDir()
@@ -466,15 +469,14 @@ async function runLive(baseDir: string, W: (p: string) => string, args: string[]
           },
         })
 
-        trace?.write(`[input] (sub-task, ${task.length} chars)`)
-        trace?.write("[output_start]")
+        trace?.infoSection("storyteller sub-loop")
+        trace?.infoAbout("input", { chars: String(task.length) })
         const subResult = await subLoop.run(task, {
           onText: (t) => {
             process.stdout.write(t)
-            trace?.stream(t)
+            trace?.outputStream(t)
           },
         })
-        trace?.write("[output_end]")
 
         return {
           summary: subResult.slice(0, 500),
@@ -493,7 +495,7 @@ async function runLive(baseDir: string, W: (p: string) => string, args: string[]
       },
       trace,
       tag: "envoy",
-      genOpts: {},
+      genOpts: { maxTokens: 500, grammar: envoyGrammar },
     },
   )
 

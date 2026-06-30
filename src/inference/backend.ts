@@ -98,10 +98,10 @@ export class InferenceBackend {
     if (!this._sequence || !this._model) throw new Error("Model not loaded — call ensureModel first")
     const genOpts = { ...DEFAULT_GEN_OPTS, ...opts }
     const tokens = this._model.tokenize(prompt)
-    const ctx = this._context as any
     let grammarEvalState: LlamaGrammarEvaluationState | undefined
     if (genOpts.grammar) {
-      const grammar = await ctx.createGrammar({ grammar: genOpts.grammar })
+      const llama = await this.ensureLlama()
+      const grammar = await llama.createGrammar({ grammar: genOpts.grammar })
       grammarEvalState = new LlamaGrammarEvaluationState({ model: this._model, grammar })
     }
     const stopSeqs: string[] = (opts as any).stopSequences ?? []

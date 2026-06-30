@@ -1,0 +1,33 @@
+Inference API listening on http://0.0.0.0:3210
+[node-llama-cpp] load: special_eos_id is not in special_eog_ids - the tokenizer config may be incorrect
+[node-llama-cpp] load: special_eot_id is not in special_eog_ids - the tokenizer config may be incorrect
+parse: error parsing grammar: Undefined rule
+
+root ::= text? tool-call | end
+tool-call ::= "<tool_call>" ws "{" ws name-property ws args-property ws "}" ws "</tool_call>"
+name-property ::= "\"name\"" ws ":" ws "\"" tool-name "\""
+args-property ::= "\"args\"" ws ":" ws "{" ws [^}]* "}"
+tool-name ::= "spawn_agent"
+ws ::= [ \t\n]*
+end ::= ""
+[node-llama-cpp] failed to parse grammar
+parse: error parsing grammar: Undefined rule
+
+root ::= text? tool-call | end
+tool-call ::= "<tool_call>" ws "{" ws name-property ws args-property ws "}" ws "</tool_call>"
+name-property ::= "\"name\"" ws ":" ws "\"" tool-name "\""
+args-property ::= "\"args\"" ws ":" ws "{" ws [^}]* "}"
+tool-name ::= "spawn_agent"
+ws ::= [ \t\n]*
+end ::= ""
+[node-llama-cpp] failed to parse grammar
+parse: error parsing grammar: Undefined rule
+
+root ::= text? tool-call | end
+tool-call ::= "<tool_call>" ws "{" ws name-property ws args-property ws "}" ws "</tool_call>"
+name-property ::= "\"name\"" ws ":" ws "\"" tool-name "\""
+args-property ::= "\"args\"" ws ":" ws "{" ws [^}]* "}"
+tool-name ::= "spawn_agent"
+ws ::= [ \t\n]*
+end ::= ""
+[node-llama-cpp] failed to parse grammar

@@ -14,16 +14,17 @@ const slotsDir = args.find((a) => a.startsWith("--slots-dir="))?.split("=")[1] |
 
 async function main() {
   await fsp.mkdir(slotsDir, { recursive: true })
+  const pidFile = path.join(PROJECT_ROOT, `inference-${port}.pid`)
+  await fsp.writeFile(pidFile, String(process.pid))
   const server = new InferenceServer(slotsDir, port)
-  process.on("SIGINT", async () => {
+  const cleanup = async () => {
     console.error("\nShutting down inference API...")
     await server.stop()
+    try { await fsp.unlink(pidFile) } catch { /* */ }
     process.exit(0)
-  })
-  process.on("SIGTERM", async () => {
-    await server.stop()
-    process.exit(0)
-  })
+  }
+  process.on("SIGINT", cleanup)
+  process.on("SIGTERM", cleanup)
   await server.start(port)
 }
 
