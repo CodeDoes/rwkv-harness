@@ -103,10 +103,10 @@ async function runAgentLoop(
         },
       }, { ...DEFAULT_GEN_OPTS, temperature: 0.7, stopSequences: ["</tool_call>", "\x03"], ...genOpts } as any)
       trace?.write("[output_end]")
-      raw = accumulated
-      opts?.onText?.(accumulated)
+      raw = accumulated.replace(/\x03/g, "")
+      opts?.onText?.(raw)
     } else {
-      raw = await engine.generate(fullPrompt, { ...DEFAULT_GEN_OPTS, temperature: 0.7, stopSequences: ["</tool_call>", "\x03"], ...genOpts } as any)
+      raw = (await engine.generate(fullPrompt, { ...DEFAULT_GEN_OPTS, temperature: 0.7, stopSequences: ["</tool_call>", "\x03"], ...genOpts } as any)).replace(/\x03/g, "")
       trace?.generate(raw)
       opts?.onText?.(raw)
     }

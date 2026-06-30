@@ -54,13 +54,14 @@ export class AgentLoop {
     let depth = 0
 
     while (depth < this.maxDepth) {
-      const raw = await this.engine.generate(fullPrompt, {
+      const rawRaw = await this.engine.generate(fullPrompt, {
         ...DEFAULT_GEN_OPTS,
         temperature: 0.7,
         stopSequences: ["</tool_call>", "\x03"],
         grammar: toolsToGbnfWithThink(this.config.toolDefs),
         ...opts,
       })
+      const raw = rawRaw.replace(/\x03/g, "")
 
       const { text, toolCalls } = this.parseToolCalls(raw)
       callbacks?.onText?.(text)
@@ -146,6 +147,7 @@ export class AgentLoop {
   cleanOutput(text: string): string {
     return text
       .replace(/^Assistant:\s*/i, "")
+      .replace(/\x03/g, "")
       .trim()
   }
 
