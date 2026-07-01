@@ -3,7 +3,7 @@ import * as path from "path"
 import { fileURLToPath } from "url"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const AGENTS_DIR = path.resolve(__dirname, "..", "agents")
+const AGENTS_DIR = path.resolve(__dirname, ".")
 
 const DIRS = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot"]
 const CHARS = ["Kael", "Lyra", "Thorn", "Nyx", "Vale", "Orin"]

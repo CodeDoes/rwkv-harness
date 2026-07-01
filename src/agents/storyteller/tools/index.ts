@@ -4,10 +4,28 @@ import file_write from "../../../tools/write.ts"
 import lsTool from "../../../tools/ls.ts"
 import grepTool from "../../../tools/grep.ts"
 import findTool from "../../../tools/find.ts"
+import mkdirTool from "../../../tools/mkdir.ts"
 import storyAnalyze from "./story-analyze.ts"
 import storyValidate from "./story-validate.ts"
+import todoTool from "./todo.ts"
 
 export const toolDefs: ToolDef[] = [
+  {
+    name: "mkdir",
+    description: "Create directory (recursive, no error if exists).",
+    parameters: [
+      { name: "path", type: "string", description: "Directory path", required: true },
+    ],
+  },
+  {
+    name: "todo",
+    description: "Manage task checklist. Actions: create (with items JSON array), check (mark item done), list (show progress).",
+    parameters: [
+      { name: "action", type: "string", description: "Action: create, check, or list", required: true, enum: ["create", "check", "list"] },
+      { name: "items", type: "string", description: "JSON array of task strings. Required for 'create' action.", required: false },
+      { name: "item", type: "string", description: "Task text to mark done. Required for 'check' action.", required: false },
+    ],
+  },
   {
     name: "read",
     description: "Read file content. Append #L:N to read lines L through N (1-indexed).",
@@ -64,6 +82,8 @@ export const toolDefs: ToolDef[] = [
 ]
 
 export const toolHandlers: Record<string, ToolHandler> = {
+  mkdir: (args) => mkdirTool({ path: args.path as string }),
+  todo: (args) => todoTool({ action: args.action as string, item: args.item as string | undefined, items: args.items as string | undefined }),
   read: (args) => file_read({ path: args.path as string }),
   write: (args) => file_write({ path: args.path as string, content: args.content as string }),
   ls: (args) => lsTool({ path: args.path as string }),

@@ -1,0 +1,3 @@
+{"type": "user", "content": "Tell a story about a dragon"}
+{"type": "tool_call", "content": "{\"name\": \"spawn_agent\", \"args\": {\"agent\": \"storyteller\"}}"}
+{"type": "tool_result", "content": "{\"name\":\"spawn_agent\",\"result\":{\"success\":true,\"data\":{\"summary\":\"Created workspace/dragon-tale with plan + 3 chapters + wiki\"}}}"}
