@@ -15,15 +15,15 @@ import { GenerateOpts, DEFAULT_GEN_OPTS } from "./types.ts"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
-const PROJECT_ROOT = path.resolve(__dirname)
+const PROJECT_ROOT = path.resolve(__dirname, "..")
 const SESSIONS_DIR = path.join(PROJECT_ROOT, "sessions")
 const GRAMMARS_DIR = path.join(PROJECT_ROOT, "src", "grammars")
-const WEBAPP_DIR = path.join(PROJECT_ROOT, "src", "channels", "web")
+const WEBAPP_DIR = path.join(PROJECT_ROOT, "src", "web")
 
 const args = process.argv.slice(2)
 const command = args[0]
 const modelPath = args.find((a) => a.startsWith("--model="))?.split("=")[1]
-  || path.join(PROJECT_ROOT, "models/rwkv7-g1g-2.9b-20260526-ctx8192-Q4_K_M.gguf")
+  || path.join(PROJECT_ROOT, "models/rwkv7-g1g-2.9b-20260526-ctx8192.gguf")
 const story = args.find((a) => a.startsWith("--story="))?.split("=")[1] || "default"
 const gpuArg = (args.find((a) => a.startsWith("--gpu="))?.split("=")[1] || "vulkan") as "vulkan" | "cuda" | "auto"
 const loraRaw = args.find((a) => a.startsWith("--lora="))?.split("=")[1]
