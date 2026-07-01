@@ -4,6 +4,7 @@ import * as path from "path"
 import { fileURLToPath } from "url"
 import { RwkvModel } from "./model/rwkv-model.ts"
 import { HttpModel } from "./model/http-model.ts"
+import { AxumModel } from "./model/axum-model.ts"
 import type { Model } from "./types.ts"
 import { SessionManager } from "./session/session.ts"
 import { StorytellerAgent } from "./agents/storyteller/index.ts"
@@ -29,6 +30,7 @@ const gpuArg = (args.find((a) => a.startsWith("--gpu="))?.split("=")[1] || "vulk
 const loraRaw = args.find((a) => a.startsWith("--lora="))?.split("=")[1]
 const loraPaths = loraRaw ? loraRaw.split(",").map((p) => p.startsWith("/") ? p : path.join(PROJECT_ROOT, p)) : undefined
 const engineUrl = args.find((a) => a.startsWith("--engine-url="))?.split("=")[1]
+const axumUrl = args.find((a) => a.startsWith("--axum-url="))?.split("=")[1] || "ws://127.0.0.1:5678/ws"
 const fixParagraphs = args.includes("--fix-paragraphs") || args.includes("-p")
 const agentDepth = parseInt(args.find((a) => a.startsWith("--depth="))?.split("=")[1] || "5", 10)
 const grammarPath = args.find((a) => a.startsWith("--grammar="))?.split("=")[1]
@@ -54,6 +56,10 @@ function createModel(modelPath: string, stateDir: string): Model {
   if (engineUrl) {
     console.error(`Model: remote (${engineUrl})`)
     return new HttpModel(engineUrl)
+  }
+  if (axumUrl) {
+    console.error(`Model: axum (${axumUrl})`)
+    return new AxumModel(axumUrl)
   }
   return new RwkvModel(modelPath, stateDir)
 }

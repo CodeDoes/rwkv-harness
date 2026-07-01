@@ -1,0 +1,21 @@
+{
+  "name": "rwkv-bindings",
+  "version": "0.1.0",
+  "private": true,
+  "napi": {
+    "name": "rwkv_bindings",
+    "triples": {
+      "defaults": true
+    }
+  },
+  "scripts": {
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^2.18.4"
+  },
+  "engines": {
+    "node": ">= 18"
+  }
+}
