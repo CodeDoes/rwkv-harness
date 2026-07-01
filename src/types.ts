@@ -65,6 +65,7 @@ export interface ToolDef {
   name: string
   description: string
   parameters: ToolParam[]
+  schema?: import("zod").ZodObject<import("zod").ZodRawShape>
 }
 
 export interface ToolParam {

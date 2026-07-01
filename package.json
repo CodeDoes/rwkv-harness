@@ -32,10 +32,12 @@
     "@node-llama-cpp/linux-x64-vulkan": "^3.18.1",
     "express": "^5.2.1",
     "filesniffer": "^1.0.3",
+    "gbnf": "^0.1.41",
     "node-llama-cpp": "^3.18.1",
     "simple-grep": "^0.0.1",
     "typescript": "^6.0.3",
-    "ws": "^8.21.0"
+    "ws": "^8.21.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",

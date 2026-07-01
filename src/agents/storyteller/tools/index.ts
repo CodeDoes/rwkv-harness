@@ -1,3 +1,4 @@
+import { z } from "zod"
 import { ToolDef, ToolHandler } from "../../../types.ts"
 import file_read from "../../../tools/read.ts"
 import file_write from "../../../tools/write.ts"
@@ -9,6 +10,21 @@ import storyAnalyze from "./story-analyze.ts"
 import storyValidate from "./story-validate.ts"
 import todoTool from "./todo.ts"
 
+const schemas = {
+  mkdir: z.object({ path: z.string().describe("Directory path") }),
+  todo: z.object({
+    action: z.enum(["check", "list"]).describe("Action: check or list"),
+    item: z.string().optional().describe("Task text to mark done"),
+  }),
+  read: z.object({ path: z.string().describe("File path") }),
+  write: z.object({ path: z.string().describe("File path"), content: z.string().describe("File content") }),
+  ls: z.object({ path: z.string().describe("Directory path") }),
+  grep: z.object({ path: z.string().describe("Directory to search"), term: z.string().describe("Text to search for") }),
+  find: z.object({ path: z.string().describe("Directory to search"), term: z.string().describe("Filename substring") }),
+  "story-analyze": z.object({ content: z.string().describe("Text to analyze") }),
+  "story-validate": z.object({ content: z.string().describe("Text to validate"), rules: z.string().describe("JSON rules array") }),
+}
+
 export const toolDefs: ToolDef[] = [
   {
     name: "mkdir",
@@ -16,15 +32,16 @@ export const toolDefs: ToolDef[] = [
     parameters: [
       { name: "path", type: "string", description: "Directory path", required: true },
     ],
+    schema: schemas.mkdir,
   },
   {
     name: "todo",
-    description: "Manage task checklist. Actions: create (with items JSON array), check (mark item done), list (show progress).",
+    description: "Check off or list tasks. Shows progress and NEXT step. Auto-creates default checklist on first use.",
     parameters: [
-      { name: "action", type: "string", description: "Action: create, check, or list", required: true, enum: ["create", "check", "list"] },
-      { name: "items", type: "string", description: "JSON array of task strings. Required for 'create' action.", required: false },
-      { name: "item", type: "string", description: "Task text to mark done. Required for 'check' action.", required: false },
+      { name: "action", type: "string", description: "Action: check or list", required: true, enum: ["check", "list"] },
+      { name: "item", type: "string", description: "Task text to mark done (for 'check' action). Leave empty to see list.", required: false },
     ],
+    schema: schemas.todo,
   },
   {
     name: "read",
@@ -32,6 +49,7 @@ export const toolDefs: ToolDef[] = [
     parameters: [
       { name: "path", type: "string", description: "Absolute or relative file path", required: true },
     ],
+    schema: schemas.read,
   },
   {
     name: "write",
@@ -40,6 +58,7 @@ export const toolDefs: ToolDef[] = [
       { name: "path", type: "string", description: "File path", required: true },
       { name: "content", type: "string", description: "Full file content", required: true },
     ],
+    schema: schemas.write,
   },
   {
     name: "ls",
@@ -47,6 +66,7 @@ export const toolDefs: ToolDef[] = [
     parameters: [
       { name: "path", type: "string", description: "Directory path", required: true },
     ],
+    schema: schemas.ls,
   },
   {
     name: "grep",
@@ -55,6 +75,7 @@ export const toolDefs: ToolDef[] = [
       { name: "path", type: "string", description: "Directory to search", required: true },
       { name: "term", type: "string", description: "Text to search for", required: true },
     ],
+    schema: schemas.grep,
   },
   {
     name: "find",
@@ -63,6 +84,7 @@ export const toolDefs: ToolDef[] = [
       { name: "path", type: "string", description: "Directory to search", required: true },
       { name: "term", type: "string", description: "Filename substring to match", required: true },
     ],
+    schema: schemas.find,
   },
   {
     name: "story-analyze",
@@ -70,6 +92,7 @@ export const toolDefs: ToolDef[] = [
     parameters: [
       { name: "content", type: "string", description: "Text content to analyze", required: true },
     ],
+    schema: schemas["story-analyze"],
   },
   {
     name: "story-validate",
@@ -78,12 +101,13 @@ export const toolDefs: ToolDef[] = [
       { name: "content", type: "string", description: "Text content to validate", required: true },
       { name: "rules", type: "string", description: "JSON array of validation rules", required: true },
     ],
+    schema: schemas["story-validate"],
   },
 ]
 
 export const toolHandlers: Record<string, ToolHandler> = {
   mkdir: (args) => mkdirTool({ path: args.path as string }),
-  todo: (args) => todoTool({ action: args.action as string, item: args.item as string | undefined, items: args.items as string | undefined }),
+  todo: (args) => todoTool({ action: args.action as string, item: args.item as string | undefined }),
   read: (args) => file_read({ path: args.path as string }),
   write: (args) => file_write({ path: args.path as string, content: args.content as string }),
   ls: (args) => lsTool({ path: args.path as string }),

@@ -6,3 +6,4 @@ workspace/
 adapters/
 src/eval/.traces/
 inference-3210.pid
+rwkv-harness/

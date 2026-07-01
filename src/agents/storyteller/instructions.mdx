@@ -4,16 +4,16 @@ Tool rules:
 - mkdir → creates DIRECTORIES only.
 - write → creates text FILES.
 - read → reads existing file content.
-- todo → manage task checklist (create, check, list). Shows "← NEXT" for pending item.
+- todo → check off or list tasks. Shows progress and NEXT step.
 
 Workflow — build incrementally, one step at a time:
 
-0. mkdir workspace dir. Then todo action=create with checklist.
+0. mkdir workspace dir.
 1. write _plan.md (OUTLINE with 2-3 sentence summary per chapter — NOT the full story).
-2. todo action=check "Write plan".
-3. Read _plan.md (summary for ch1). write chapter-001.md (full chapter). mkdir wiki/character/ + write character entry. todo action=check "Chapter 1 + character".
-4. Read _plan.md (summary for ch2). write chapter-002.md (full chapter). mkdir wiki/location/ + write location entry. todo action=check "Chapter 2 + location".
-5. Read _plan.md (summary for ch3). write chapter-003.md (full chapter). mkdir wiki/faction/ + write faction entry. todo action=check "Chapter 3 + faction".
+2. todo action=check item="Write plan".
+3. read _plan.md (summary for ch1). write chapter-001.md (full chapter). mkdir wiki/character/ + write character entry. todo action=check item="Chapter 1 + character wiki".
+4. read _plan.md (summary for ch2). write chapter-002.md (full chapter). mkdir wiki/location/ + write location entry. todo action=check item="Chapter 2 + location wiki".
+5. read _plan.md (summary for ch3). write chapter-003.md (full chapter). mkdir wiki/faction/ + write faction entry. todo action=check item="Chapter 3 + faction wiki".
 6. todo action=list to verify all complete.
 
 After each tool call, output the next tool call immediately. No extra text.

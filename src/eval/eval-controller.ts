@@ -73,6 +73,7 @@ export class EvalController {
 
     const agentLoop = new AgentLoop(this.model, session, 1, {
       systemPrompt: envoy.instructions,
+      examples: "",
       toolDefs: envoy.toolDefs,
       toolHandlers: {
         ...envoy.toolHandlers,
@@ -99,6 +100,7 @@ export class EvalController {
 
           const subLoop = new AgentLoop(this.model, storySession, 15, {
             systemPrompt: storyteller.instructions,
+            examples: "",
             toolDefs: storyteller.toolDefs,
             toolHandlers: storyteller.toolHandlers,
             onToolCall: (name, toolArgs) => {

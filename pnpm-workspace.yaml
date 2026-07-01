@@ -1,3 +1,4 @@
 allowBuilds:
   esbuild: true
+  json-schema-to-gbnf@https://codeload.github.com/adrienbrault/json-schema-to-gbnf/tar.gz/97117a1a469a2a265c1ff587e04546daa8a49862: set this to true or false
   node-llama-cpp: true

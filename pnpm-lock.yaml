@@ -216,6 +216,9 @@ importers:
       filesniffer:
         specifier: ^1.0.3
         version: 1.0.3
+      gbnf:
+        specifier: ^0.1.41
+        version: 0.1.41
       node-llama-cpp:
         specifier: ^3.18.1
         version: 3.18.1(typescript@6.0.3)
@@ -228,6 +231,9 @@ importers:
       ws:
         specifier: ^8.21.0
         version: 8.21.0
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@types/express':
         specifier: ^5.0.6
@@ -870,6 +876,9 @@ packages:
   function-bind@1.1.2:
     resolution: {integrity: sha512-7XHNxH7qX9xG5mIwxkhumTox/MIRNcOgDrxWsMt2pAr23WHp6MrRlN7FBSFpCpr+oVO0F744iUgR82nJMfG2SA==}
 
+  gbnf@0.1.41:
+    resolution: {integrity: sha512-p6DpLMpetkru/+0UqDaRt+pp2pr+5fWr24DUZtCk5YUnXC90PIXec5wc3sASSvjxWkq662B4wllfP2H9XySNqg==}
+
   generator-function@2.0.1:
     resolution: {integrity: sha512-SFdFmIJi+ybC0vjlHN0ZGVGHc3lgE0DxPAT0djjVg+kjOnSqclqmj0KQ7ykTOLP6YxoqOvuAODGdcHJn+43q3g==}
     engines: {node: '>= 0.4'}
@@ -1415,6 +1424,9 @@ packages:
     resolution: {integrity: sha512-CzhO+pFNo8ajLM2d2IW/R93ipy99LWjtwblvC1RsoSUMZgyLbYFr221TnSNT7GjGdYui6P459mw9JH/g/zW2ug==}
     engines: {node: '>=18'}
 
+  zod@4.4.3:
+    resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
+
 snapshots:
 
   '@esbuild/aix-ppc64@0.28.1':
@@ -1945,6 +1957,8 @@ snapshots:
     optional: true
 
   function-bind@1.1.2: {}
+
+  gbnf@0.1.41: {}
 
   generator-function@2.0.1: {}
 
@@ -2548,3 +2562,5 @@ snapshots:
       yargs-parser: 21.1.1
 
   yoctocolors@2.1.2: {}
+
+  zod@4.4.3: {}

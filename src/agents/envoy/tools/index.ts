@@ -1,4 +1,13 @@
+import { z } from "zod"
 import { ToolDef, ToolHandler } from "../../../types.ts"
+
+const schemas = {
+  spawn_agent: z.object({
+    agent: z.enum(["storyteller", "coder"]).describe("Agent to spawn"),
+    task: z.string().describe("Full task description"),
+    workspace: z.string().optional().describe("Working directory"),
+  }),
+}
 
 export const toolDefs: ToolDef[] = [
   {
@@ -9,6 +18,7 @@ export const toolDefs: ToolDef[] = [
       { name: "task", type: "string", description: "Full task description including requirements and file paths", required: true },
       { name: "workspace", type: "string", description: "Directory path for the agent to work in", required: false },
     ],
+    schema: schemas.spawn_agent,
   },
 ]
 

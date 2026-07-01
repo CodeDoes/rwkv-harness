@@ -1,4 +1,6 @@
+import { z } from "zod"
 import { ToolDef, ToolHandler, ToolParam } from "../types.ts"
+import { buildRootGrammar } from "./zod-to-gbnf.ts"
 import file_read from "./read.ts"
 import file_write from "./write.ts"
 import file_edit from "./edit.ts"
@@ -7,6 +9,20 @@ import mkdirTool from "./mkdir.ts"
 import lsTool from "./ls.ts"
 import grepTool from "./grep.ts"
 
+const sharedDefs = {
+  read: { schema: z.object({ path: z.string().describe("File path") }) },
+  write: { schema: z.object({ path: z.string().describe("File path"), content: z.string().describe("File content") }) },
+  edit: { schema: z.object({ path: z.string().describe("File path"), find: z.string().describe("Text to find"), replace: z.string().describe("Replacement text") }) },
+  ls: { schema: z.object({ path: z.string().describe("Directory path") }) },
+  mkdir: { schema: z.object({ path: z.string().describe("Directory path") }) },
+  grep: { schema: z.object({ path: z.string().describe("Directory to search"), term: z.string().describe("Text to search for") }) },
+  find: { schema: z.object({ path: z.string().describe("Directory to search"), term: z.string().describe("Filename substring") }) },
+}
+
+export const toolSchemas: Record<string, z.ZodObject<z.ZodRawShape>> = Object.fromEntries(
+  Object.entries(sharedDefs).map(([k, v]) => [k, v.schema])
+)
+
 export const toolDefs: ToolDef[] = [
   {
     name: "read",
@@ -14,6 +30,7 @@ export const toolDefs: ToolDef[] = [
     parameters: [
       { name: "path", type: "string", description: "Absolute or relative file path", required: true },
     ],
+    schema: sharedDefs.read.schema,
   },
   {
     name: "write",
@@ -22,6 +39,7 @@ export const toolDefs: ToolDef[] = [
       { name: "path", type: "string", description: "File path", required: true },
       { name: "content", type: "string", description: "Full file content", required: true },
     ],
+    schema: sharedDefs.write.schema,
   },
   {
     name: "edit",
@@ -31,6 +49,7 @@ export const toolDefs: ToolDef[] = [
       { name: "find", type: "string", description: "Text to find (exact match)", required: true },
       { name: "replace", type: "string", description: "Replacement text", required: true },
     ],
+    schema: sharedDefs.edit.schema,
   },
   {
     name: "ls",
@@ -38,6 +57,7 @@ export const toolDefs: ToolDef[] = [
     parameters: [
       { name: "path", type: "string", description: "Directory path", required: true },
     ],
+    schema: sharedDefs.ls.schema,
   },
   {
     name: "mkdir",
@@ -45,6 +65,7 @@ export const toolDefs: ToolDef[] = [
     parameters: [
       { name: "path", type: "string", description: "Directory path", required: true },
     ],
+    schema: sharedDefs.mkdir.schema,
   },
   {
     name: "grep",
@@ -53,6 +74,7 @@ export const toolDefs: ToolDef[] = [
       { name: "path", type: "string", description: "Directory to search", required: true },
       { name: "term", type: "string", description: "Text to search for", required: true },
     ],
+    schema: sharedDefs.grep.schema,
   },
   {
     name: "find",
@@ -61,6 +83,7 @@ export const toolDefs: ToolDef[] = [
       { name: "path", type: "string", description: "Directory to search", required: true },
       { name: "term", type: "string", description: "Filename substring to match", required: true },
     ],
+    schema: sharedDefs.find.schema,
   },
 ]
 
@@ -133,6 +156,16 @@ export function toolsToGbnfWithThink(defs?: ToolDef[]): string {
 
 export function toolsToGbnfText(defs?: ToolDef[]): string {
   return gbnfRoot(defs ?? toolDefs, "root ::= (think-block? ws)? (text | call)")
+}
+
+/** Zod‑based GBNF generation — uses schema field when available */
+export function toolsToGbnfZod(defs?: ToolDef[]): string {
+  const tds = defs ?? toolDefs
+  const schemas: Record<string, z.ZodObject<z.ZodRawShape>> = {}
+  for (const t of tds) {
+    if (t.schema) schemas[t.name] = t.schema
+  }
+  return buildRootGrammar(schemas)
 }
 
 export function toolsToGbnfResponse(): string {
