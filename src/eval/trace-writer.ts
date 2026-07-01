@@ -1,6 +1,8 @@
 import * as fs from "fs"
 import * as path from "path"
 import { fileURLToPath } from "url"
+import type { ToolResult } from "../types.ts"
+import { formatToolResult } from "../agent/loop.ts"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const TRACES_DIR = path.resolve(__dirname, "..", "eval", ".traces")
@@ -46,6 +48,17 @@ export class TraceWriter {
     this.emit("")
     this.emit(`--- input ---`)
     this.emit(text.replace(/\x03/g, "\\x03"))
+  }
+
+  outputBlock() {
+    this.emit("")
+    this.emit(`--- output ---`)
+  }
+
+  toolResultBlock(result: ToolResult) {
+    this.emit("")
+    this.emit(`--- tool-result ---`)
+    this.emit(formatToolResult(result))
   }
 
   outputStream(text: string) {

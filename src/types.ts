@@ -48,6 +48,7 @@ export interface GenerateOpts {
 
 export interface GenerateCallbacks {
   onText?: (text: string) => void
+  onRawOutput?: (raw: string) => void
   onDone?: () => void
 }
 

@@ -84,28 +84,42 @@ function toolNamesGbnf(defs: ToolDef[]): string {
   return defs.map((t) => escapeToolName(t.name)).join(" | ")
 }
 
-function toolCallGbnf(names: string): string[] {
+function gbnfLines(names: string): string[] {
   return [
-    `root ::= (think-block? ws)? text? ws tool-call`,
     'think-block ::= "<think>" ([^<] | "<" [^/])* "</think>"',
     'text ::= [^<]+',
-    'tool-call ::= "<" + "tool_call" + ">" ws "{" ws name-property ws args-property ws "}" ws "</" + "tool_call" + ">"',
-    'name-property ::= "\\"name\\"" ws ":" ws "\"" tool-name "\""',
-    'args-property ::= "\\"args\\"" ws ":" ws "{" ws [^}]* "}"',
+    'tool-call ::= "<tool_call>" ws "{" ws name-property ws "," ws args-property ws "}" ws "</tool_call>"',
+    'name-property ::= "\\"name\\"" ws ":" ws "\\"" tool-name "\\""',
+    'args-property ::= "\\"args\\"" ws ":" ws "{" ws arg-pairs ws "}"',
+    'arg-pairs ::= arg-pair (ws "," ws arg-pair)*',
+    'arg-pair ::= "\\"" [a-zA-Z_]+ "\\"" ws ":" ws string-value',
+    'string-value ::= "\\"" [^"]* "\\""',
     `tool-name ::= ${names}`,
     'ws ::= [ \\t\\n]*',
   ]
 }
 
 export function toolsToGbnf(defs?: ToolDef[]): string {
-  return toolCallGbnf(toolNamesGbnf(defs ?? toolDefs)).join("\n")
+  const names = toolNamesGbnf(defs ?? toolDefs)
+  return [
+    `root ::= tool-call`,
+    ...gbnfLines(names),
+  ].join("\n")
 }
 
 export function toolsToGbnfWithThink(defs?: ToolDef[]): string {
   const names = toolNamesGbnf(defs ?? toolDefs)
   return [
     `root ::= (think-block? ws)? text? ws tool-call`,
-    ...toolCallGbnf(names).slice(1),
+    ...gbnfLines(names),
+  ].join("\n")
+}
+
+export function toolsToGbnfText(defs?: ToolDef[]): string {
+  const names = toolNamesGbnf(defs ?? toolDefs)
+  return [
+    `root ::= (think-block? ws)? (text | tool-call)`,
+    ...gbnfLines(names),
   ].join("\n")
 }
 
