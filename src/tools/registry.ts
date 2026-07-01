@@ -1,4 +1,4 @@
-import { ToolDef, ToolHandler } from "../types.ts"
+import { ToolDef, ToolHandler, ToolParam } from "../types.ts"
 import file_read from "./read.ts"
 import file_write from "./write.ts"
 import file_edit from "./edit.ts"
@@ -74,53 +74,65 @@ export const toolHandlers: Record<string, ToolHandler> = {
   find: (args) => findTool({ path: args.path as string, term: args.term as string }),
 }
 
-function escapeToolName(name: string): string {
-  return '"' + name.replace(/[\\"]/g, "\\$&") + '"'
-}
-
 const EOT = "\x03"
 
-function toolNamesGbnf(defs: ToolDef[]): string {
-  return defs.map((t) => escapeToolName(t.name)).join(" | ")
+function paramGbnfRule(p: ToolParam): string {
+  if (p.enum) return `(${p.enum.map((v) => `"\\"${v}\\""`).join(" | ")})`
+  switch (p.type) {
+    case "number": return "number-value"
+    case "boolean": return "boolean-value"
+    case "string":
+      return p.name === "content" || p.name === "replace" ? "prose-string" : "string-value"
+  }
 }
 
-function gbnfLines(names: string): string[] {
-  return [
+function gbnfToolCallSection(defs: ToolDef[]): { lines: string[]; callNames: string[] } {
+  const lines: string[] = [
+    'prose-string ::= "\\"" ([^"\\\\] | "\\\\" .)* "\\""',
+    'string-value ::= "\\"" ([^"] | "\\\\" "\\"")* "\\""',
+    'number-value ::= [0-9]+ ("." [0-9]+)?',
+    'boolean-value ::= "true" | "false"',
+  ]
+  const callNames: string[] = []
+  for (const t of defs) {
+    const safe = t.name.replace(/_/g, "")
+    const cn = `call${safe}`
+    callNames.push(cn)
+    lines.push(`${safe}name ::= "\\"name\\"" ws ":" ws "\\"${t.name}\\""`)
+    const params = t.parameters.map((p) =>
+      `"\\"${p.name}\\"" ws ":" ws ${paramGbnfRule(p)}`
+    ).join(` ws "," ws `)
+    lines.push(`${safe}args ::= "\\"args\\"" ws ":" ws "{" ws ${params} ws "}"`)
+    lines.push(`${cn} ::= "<tool_call>" ws "{" ws ${safe}name ws "," ws ${safe}args ws "}" ws "</tool_call>"`)
+  }
+  return { lines, callNames }
+}
+
+function gbnfRoot(defs: ToolDef[], rootRule: string): string {
+  const shared = [
     'think-block ::= "<think>" ([^<] | "<" [^/])* "</think>"',
     'text ::= [^<]+',
-    'tool-call ::= "<tool_call>" ws "{" ws name-property ws "," ws args-property ws "}" ws "</tool_call>"',
-    'name-property ::= "\\"name\\"" ws ":" ws "\\"" tool-name "\\""',
-    'args-property ::= "\\"args\\"" ws ":" ws "{" ws arg-pairs ws "}"',
-    'arg-pairs ::= arg-pair (ws "," ws arg-pair)*',
-    'arg-pair ::= "\\"" [a-zA-Z_]+ "\\"" ws ":" ws string-value',
-    'string-value ::= "\\"" [^"]* "\\""',
-    `tool-name ::= ${names}`,
     'ws ::= [ \\t\\n]*',
   ]
+  const { lines, callNames } = gbnfToolCallSection(defs)
+  return [
+    rootRule,
+    ...shared,
+    ...lines,
+    `call ::= ${callNames.join(" | ")}`,
+  ].join("\n")
 }
 
 export function toolsToGbnf(defs?: ToolDef[]): string {
-  const names = toolNamesGbnf(defs ?? toolDefs)
-  return [
-    `root ::= tool-call`,
-    ...gbnfLines(names),
-  ].join("\n")
+  return gbnfRoot(defs ?? toolDefs, "root ::= call")
 }
 
 export function toolsToGbnfWithThink(defs?: ToolDef[]): string {
-  const names = toolNamesGbnf(defs ?? toolDefs)
-  return [
-    `root ::= (think-block? ws)? text? ws tool-call`,
-    ...gbnfLines(names),
-  ].join("\n")
+  return gbnfRoot(defs ?? toolDefs, "root ::= (think-block? ws)? text? ws call")
 }
 
 export function toolsToGbnfText(defs?: ToolDef[]): string {
-  const names = toolNamesGbnf(defs ?? toolDefs)
-  return [
-    `root ::= (think-block? ws)? (text | tool-call)`,
-    ...gbnfLines(names),
-  ].join("\n")
+  return gbnfRoot(defs ?? toolDefs, "root ::= (think-block? ws)? (text | call)")
 }
 
 export function toolsToGbnfResponse(): string {

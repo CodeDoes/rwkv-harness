@@ -1,4 +1,4 @@
-{"type": "user", "content": "Tell a story"}
+{"type": "system", "content": "You are the envoy. Delegate to subagents. Only use spawn_agent."}
+{"type": "user", "content": "Write a story about a lost kingdom"}
 {"type": "tool_call", "content": "{\"name\": \"spawn_agent\", \"args\": {\"agent\": \"storyteller\"}}"}
-{"type": "tool_result", "content": "{\"name\":\"spawn_agent\",\"result\":{\"success\":true,\"data\":{\"summary\":\"done\"}}}"}
-{"type": "text", "content": "Done."}
+{"type": "tool_result", "content": "{\"name\":\"spawn_agent\",\"result\":{\"success\":true,\"data\":{\"summary\":\"Created files at workspace/kingdom\"}}}"}

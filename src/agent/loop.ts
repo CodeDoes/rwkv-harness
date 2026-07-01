@@ -15,6 +15,38 @@ const DEFAULT_EXAMPLES = `\n\nExamples:\n\nUser: list files in /tmp\n\nAssistant
 
 const TOOL_CALL_RE = /<tool_call>\s*(\{[\s\S]*?\})\s*<\/tool_call>/g
 
+function fixToolCallJson(raw: string): string {
+  try { JSON.parse(raw); return raw } catch {}
+
+  let result = ""
+  let inString = false
+  let escaped = false
+
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i]
+    if (ch === "\\" && inString) { result += ch; escaped = true; continue }
+    if (escaped) { result += ch; escaped = false; continue }
+
+    if (ch === '"') {
+      if (!inString) {
+        inString = true
+        result += '"'
+      } else {
+        const rest = raw.slice(i + 1).trimStart()
+        if (rest.length > 0 && ',:}]'.includes(rest[0])) {
+          inString = false
+          result += '"'
+        } else {
+          result += '\\"'
+        }
+      }
+    } else {
+      result += ch
+    }
+  }
+  return result
+}
+
 export interface AgentLoopConfig {
   systemPrompt?: string
   toolDefs?: ToolDef[]
@@ -77,19 +109,21 @@ export class AgentLoop {
       const raw = rawRaw.replace(/\x03/g, "")
       callbacks?.onRawOutput?.(raw)
 
-      const { text, toolCalls } = this.parseToolCalls(raw)
+      const { text, toolCalls, errors } = this.parseToolCalls(raw)
       callbacks?.onText?.(text)
       finalText += text
 
-      if (toolCalls.length === 0) break
+      const allCalls = [...toolCalls, ...errors]
+      if (allCalls.length === 0) break
 
-      for (const call of toolCalls) {
+      let resultsBlock = ""
+      for (const call of allCalls) {
         this.config.onToolCall?.(call.name, call.args)
         const result = await this.execTool(call)
         this.config.onToolResult?.(result)
-        const resultBlock = this.formatToolResult(result)
-        fullPrompt += raw + "\n\nUser: " + resultBlock + "\n\nAssistant:"
+        resultsBlock += this.formatToolResult(result) + "\n"
       }
+      fullPrompt += raw + "\n\nUser: " + resultsBlock.trim() + "\n\nAssistant:"
       await this.session.save()
       depth++
     }
@@ -104,15 +138,17 @@ export class AgentLoop {
   }
 
   private buildSystemPrompt(): string {
-    return this.config.examples + "\n\n" + this.config.systemPrompt + "\n\nTools:\n" + toolsToXml(this.config.toolDefs)
+    return this.config.examples + "\n\nSystem:\n" + this.config.systemPrompt + "\n\nTools:\n" + toolsToXml(this.config.toolDefs)
   }
 
   parseToolCalls(text: string): {
     text: string
     toolCalls: ToolCall[]
     beforeFirst: string
+    errors: ToolCall[]
   } {
     const toolCalls: ToolCall[] = []
+    const errors: ToolCall[] = []
     const segments: string[] = []
     let lastIndex = 0
     let match: RegExpExecArray | null
@@ -122,12 +158,13 @@ export class AgentLoop {
       segments.push(text.slice(lastIndex, match.index))
       lastIndex = re.lastIndex
       try {
-        const parsed = JSON.parse(match[1])
+        const json = fixToolCallJson(match[1])
+        const parsed = JSON.parse(json)
         if (!parsed.name || typeof parsed.name !== "string") throw new Error("missing name")
         if (!parsed.args || typeof parsed.args !== "object" || Array.isArray(parsed.args)) throw new Error("missing args object")
         toolCalls.push({ name: parsed.name, args: parsed.args })
       } catch {
-        segments.push(match[0])
+        errors.push({ name: "__parse_error__", args: { raw: match[0] } })
       }
     }
     segments.push(text.slice(lastIndex))
@@ -135,10 +172,13 @@ export class AgentLoop {
     const beforeFirst = segments[0] ?? ""
     const cleaned = segments.join("").trim()
 
-    return { text: cleaned, toolCalls, beforeFirst }
+    return { text: cleaned, toolCalls, beforeFirst, errors }
   }
 
   async execTool(call: ToolCall): Promise<ToolResult> {
+    if (call.name === "__parse_error__") {
+      return { name: "__parse_error__", success: false, data: null, error: "Parse error: tool call JSON was malformed. Use {\"name\": \"...\", \"args\": {...}} inside <tool_call> tags. Avoid unescaped quotes in string values — use \\\" instead." }
+    }
     const handler = this.config.toolHandlers[call.name]
     if (!handler) {
       return { name: call.name, success: false, data: null, error: `Unknown tool: ${call.name}` }
