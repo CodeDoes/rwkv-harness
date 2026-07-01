@@ -1,7 +1,7 @@
-import type { Engine } from "./types.ts"
-import { SessionManager } from "./session.ts"
-import { GenerateOpts, DEFAULT_GEN_OPTS, GenerateCallbacks, ToolCall, ToolResult, ToolDef, ToolHandler } from "./types.ts"
-import { toolDefs as defaultToolDefs, toolHandlers as defaultHandlers, toolsToXml, toolsToGbnfWithThink } from "./tool-registry.ts"
+import type { Model } from "../types.ts"
+import { SessionManager } from "../session/session.ts"
+import { GenerateOpts, DEFAULT_GEN_OPTS, GenerateCallbacks, ToolCall, ToolResult, ToolDef, ToolHandler } from "../types.ts"
+import { toolDefs as defaultToolDefs, toolHandlers as defaultHandlers, toolsToXml, toolsToGbnfWithThink } from "../tools/registry.ts"
 
 const DEFAULT_SYSTEM_PREAMBLE = `You can use tools to read and write files. When you need to use a tool, output:
 
@@ -23,13 +23,13 @@ export interface AgentLoopConfig {
 }
 
 export class AgentLoop {
-  private engine: Engine
+  private model: Model
   private session: SessionManager
   private maxDepth: number
   private config: Required<AgentLoopConfig>
 
-  constructor(engine: Engine, session: SessionManager, maxDepth = 5, config?: AgentLoopConfig) {
-    this.engine = engine
+  constructor(model: Model, session: SessionManager, maxDepth = 5, config?: AgentLoopConfig) {
+    this.model = model
     this.session = session
     this.maxDepth = maxDepth
     this.config = {
@@ -54,7 +54,7 @@ export class AgentLoop {
     let depth = 0
 
     while (depth < this.maxDepth) {
-      const rawRaw = await this.engine.generate(fullPrompt, {
+      const rawRaw = await this.model.generate(fullPrompt, {
         ...DEFAULT_GEN_OPTS,
         temperature: 0.7,
         stopSequences: ["</tool_call>", "\x03"],

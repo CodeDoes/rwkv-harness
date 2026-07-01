@@ -1,7 +1,7 @@
 import { getLlama, LlamaModel, LlamaContext, LlamaContextSequence, LlamaGrammar, LlamaGrammarEvaluationState } from "node-llama-cpp"
-import { GenerateOpts, DEFAULT_GEN_OPTS, GenerateCallbacks, type Engine, type MoSEHandle, type LoRAHandle } from "../core/types.ts"
-import type { MoseBlendWeights } from "../core/types.ts"
-import { MoSEEngine, LoRAManager } from "./mose-engine.ts"
+import { GenerateOpts, DEFAULT_GEN_OPTS, GenerateCallbacks, type Model, type MoSEHandle, type LoRAHandle } from "../types.ts"
+import type { MoseBlendWeights } from "../types.ts"
+import { MoSEEngine, LoRAManager } from "./mose.ts"
 import type { Token } from "node-llama-cpp"
 
 interface StateInfo {
@@ -14,7 +14,7 @@ interface SystemPromptState {
   fileSize: number
 }
 
-interface RwkvEngineCtx {
+interface RwkvModelCtx {
   llama: Awaited<ReturnType<typeof getLlama>>
   model: LlamaModel
   context: LlamaContext
@@ -27,8 +27,8 @@ interface LoraOpts {
 
 type GenOptsWithExtras = Partial<GenerateOpts> & { fixParagraphBreak?: boolean; stopSequences?: string[] }
 
-export class RwkvEngine implements Engine {
-  private ctx: RwkvEngineCtx | null = null
+export class RwkvModel implements Model {
+  private ctx: RwkvModelCtx | null = null
   private modelPath: string
   private stateDir: string
   private systemState: SystemPromptState | null = null
@@ -98,8 +98,8 @@ export class RwkvEngine implements Engine {
     }
   }
 
-  private ensureCtx(): RwkvEngineCtx {
-    if (!this.ctx) throw new Error("Engine not initialized. Call init() first.")
+  private ensureCtx(): RwkvModelCtx {
+    if (!this.ctx) throw new Error("Model not initialized. Call init() first.")
     return this.ctx
   }
 

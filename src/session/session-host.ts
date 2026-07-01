@@ -1,22 +1,22 @@
 import * as path from "path"
 import { promises as fsp } from "fs"
-import type { Engine } from "./types.ts"
-import { AgentLoop } from "./agent-loop.ts"
+import type { Model } from "../types.ts"
+import { AgentLoop } from "../agent/loop.ts"
 import { SessionManager } from "./session.ts"
-import { GenerateOpts, DEFAULT_GEN_OPTS, SessionInfo, ChatMessage } from "./types.ts"
-import { toolDefs, toolsToXml } from "./tool-registry.ts"
+import { GenerateOpts, DEFAULT_GEN_OPTS, SessionInfo, ChatMessage } from "../types.ts"
+import { toolDefs, toolsToXml } from "../tools/registry.ts"
 
 const SYSTEM_PREAMBLE = `You are a helpful AI assistant with file system access. You can read, write, edit files, list directories, and search file contents.`
 
-export class AgentEngine {
-  private _engine: Engine
-  private stateDir: string
-  private currentLabel: string = "default"
-  private sessions: Map<string, { label: string; messages: ChatMessage[] }> = new Map()
-  private sessionManager: SessionManager
+export class SessionHost {
+  _model: Model
+  stateDir: string
+  currentLabel: string = "default"
+  sessions: Map<string, { label: string; messages: ChatMessage[] }> = new Map()
+  sessionManager: SessionManager
 
-  constructor(engine: Engine, stateDir: string) {
-    this._engine = engine
+  constructor(model: Model, stateDir: string) {
+    this._model = model
     this.stateDir = stateDir
     this.sessionManager = new SessionManager(stateDir, "_agent", "unknown")
 
@@ -25,7 +25,7 @@ export class AgentEngine {
 
   async init() {
     await fsp.mkdir(this.stateDir, { recursive: true })
-    await this._engine.bakeSystemPrompt(SYSTEM_PREAMBLE)
+    await this._model.bakeSystemPrompt(SYSTEM_PREAMBLE)
     await this.loadSessionIndex()
   }
 
@@ -60,13 +60,13 @@ export class AgentEngine {
     await fsp.writeFile(this.sessionIndexPath(), JSON.stringify(data, null, 2), "utf-8")
   }
 
-  get engine(): Engine {
-    return this._engine
+  get model(): Model {
+    return this._model
   }
 
   getCurrentSession(): SessionInfo {
     const s = this.sessions.get(this.currentLabel)!
-    const statePath = this._engine.statePath(`session_${this.currentLabel}`)
+    const statePath = this._model.statePath(`session_${this.currentLabel}`)
     return {
       label: this.currentLabel,
       createdAt: "",
@@ -83,7 +83,7 @@ export class AgentEngine {
         label,
         createdAt: "",
         updatedAt: "",
-        statePath: this._engine.statePath(`session_${label}`),
+        statePath: this._model.statePath(`session_${label}`),
         messageCount: s.messages.length,
       })
     }
@@ -94,7 +94,7 @@ export class AgentEngine {
     const existing = this.sessions.get(this.currentLabel)
     if (existing && existing.messages.length > 0) {
       const cpName = `session_${this.currentLabel}`
-      await this._engine.saveCheckpoint(cpName)
+      await this._model.saveCheckpoint(cpName)
     }
 
     this.currentLabel = label
@@ -102,11 +102,11 @@ export class AgentEngine {
       this.sessions.set(label, { label, messages: [] })
     }
 
-    const statePath = this._engine.statePath(`session_${label}`)
+    const statePath = this._model.statePath(`session_${label}`)
     try {
-      await this._engine.loadCheckpoint(`session_${label}`)
+      await this._model.loadCheckpoint(`session_${label}`)
     } catch {
-      await this._engine.loadBaseline()
+      await this._model.loadBaseline()
     }
 
     await this.saveSessionIndex()
@@ -128,14 +128,14 @@ export class AgentEngine {
     const current = this.sessions.get(this.currentLabel)
     if (current && current.messages.length > 0) {
       const cpName = `session_${this.currentLabel}`
-      await this._engine.saveCheckpoint(cpName)
+      await this._model.saveCheckpoint(cpName)
     }
 
     this.currentLabel = label
     try {
-      await this._engine.loadCheckpoint(`session_${label}`)
+      await this._model.loadCheckpoint(`session_${label}`)
     } catch {
-      await this._engine.loadBaseline()
+      await this._model.loadBaseline()
     }
 
     await this.saveSessionIndex()
@@ -144,7 +144,7 @@ export class AgentEngine {
       label,
       createdAt: "",
       updatedAt: "",
-      statePath: this._engine.statePath(`session_${label}`),
+      statePath: this._model.statePath(`session_${label}`),
       messageCount: this.sessions.get(label)!.messages.length,
     }
   }
@@ -153,7 +153,7 @@ export class AgentEngine {
     if (label === "default") throw new Error("Cannot delete default session")
     this.sessions.delete(label)
 
-    const statePath = this._engine.statePath(`session_${label}`)
+    const statePath = this._model.statePath(`session_${label}`)
     try {
       await fsp.unlink(statePath)
     } catch {
@@ -161,7 +161,7 @@ export class AgentEngine {
 
     if (this.currentLabel === label) {
       this.currentLabel = "default"
-      await this._engine.loadBaseline()
+      await this._model.loadBaseline()
     }
 
     await this.saveSessionIndex()
@@ -192,7 +192,7 @@ export class AgentEngine {
     s.messages.push({ role: "user", content: prompt, timestamp: new Date().toISOString() })
 
     let finalText = ""
-    const agentLoop = new AgentLoop(this._engine, this.sessionManager, 5)
+    const agentLoop = new AgentLoop(this._model, this.sessionManager, 5)
     try {
       const result = await agentLoop.run(prompt, {
         onText: (t) => {
@@ -214,7 +214,7 @@ export class AgentEngine {
     if (s && s.messages.length > 0) {
       const cpName = `session_${this.currentLabel}`
       try {
-        await this._engine.saveCheckpoint(cpName)
+        await this._model.saveCheckpoint(cpName)
       } catch {
       }
     }

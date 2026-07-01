@@ -1,10 +1,10 @@
 import * as readline from "readline"
 import * as path from "path"
-import { RwkvEngine } from "../../engine/rwkv-engine.ts"
-import type { Engine } from "../../core/types.ts"
-import { AgentEngine } from "../../core/agent-engine.ts"
-import { GatewayServer } from "../../gateway/server.ts"
-import { DEFAULT_GEN_OPTS } from "../../core/types.ts"
+import { RwkvModel } from "../model/rwkv-model.ts"
+import type { Model } from "../types.ts"
+import { SessionHost } from "../session/session-host.ts"
+import { GatewayServer } from "../gateway/server.ts"
+import { DEFAULT_GEN_OPTS } from "../types.ts"
 
 const PROJECT_ROOT = path.resolve(import.meta.dirname!, "../..")
 
@@ -46,12 +46,12 @@ export class Tui {
   private async startDirect() {
     console.error("\x1b[36mRWKV TUI (direct)\x1b[0m")
 
-    const engine = new RwkvEngine(this.options.modelPath, this.options.stateDir)
+    const model = new RwkvModel(this.options.modelPath, this.options.stateDir)
     console.error("Loading model...")
-    await engine.init(this.options.gpu, this.options.loraPaths)
+    await model.init(this.options.gpu, this.options.loraPaths)
     console.error("Model loaded.")
 
-    const agent = new AgentEngine(engine, this.options.stateDir)
+    const agent = new SessionHost(model, this.options.stateDir)
     await agent.init()
 
     let generating = false
@@ -88,7 +88,7 @@ export class Tui {
     this.prompt()
   }
 
-  private async handleDirectCommand(input: string, agent: AgentEngine) {
+  private async handleDirectCommand(input: string, agent: SessionHost) {
     const parts = input.slice(1).split(/\s+/)
     const verb = parts[0]
 

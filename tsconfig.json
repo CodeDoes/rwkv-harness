@@ -10,5 +10,5 @@
     "allowImportingTsExtensions": true,
     "types": ["node", "express"],
   },
-  "include": ["cli.ts", "src/**/*"],
+  "include": ["src/**/*"],
 }

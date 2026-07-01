@@ -1,4 +1,4 @@
-import type { Engine, GenerateCallbacks, MoseBlendWeights, MoSEHandle, LoRAHandle, MoSEExpert } from "../core/types.ts"
+import type { Model, GenerateCallbacks, MoseBlendWeights, MoSEHandle, LoRAHandle, MoSEExpert } from "../types.ts"
 import { spawn } from "child_process"
 
 function trimSlash(s: string): string {
@@ -14,7 +14,7 @@ async function jsonReq<T>(url: string, init: RequestInit = {}): Promise<T> {
   return (await res.json()) as T
 }
 
-export class EngineHTTPClient implements Engine {
+export class HttpModel implements Model {
   private readonly url: string
   private _modelPath: string = ""
   private _loraPaths: string[] = []
@@ -195,7 +195,7 @@ export interface BootOpts {
   idleTimeoutMs?: number
 }
 
-export async function bootEngine(opts: BootOpts): Promise<{ engine: EngineHTTPClient; close: () => Promise<void> }> {
+export async function bootRemoteModel(opts: BootOpts): Promise<{ model: HttpModel; close: () => Promise<void> }> {
   const port = opts.port ?? parseInt(process.env.INFERENCE_PORT ?? "3210", 10)
   const url = `http://127.0.0.1:${port}`
   const healthUrl = `${url}/health`
@@ -228,11 +228,11 @@ export async function bootEngine(opts: BootOpts): Promise<{ engine: EngineHTTPCl
     if (!alive) throw new Error(`Inference server did not come up at ${url} within 180s`)
   }
 
-  const engine = new EngineHTTPClient(url)
-  await engine.init()
+  const model = new HttpModel(url)
+  await model.init()
 
-  engine["_modelPath"] = opts.modelPath
-  engine["_loraPaths"] = opts.loraPaths ?? []
+  model["_modelPath"] = opts.modelPath
+  model["_loraPaths"] = opts.loraPaths ?? []
 
-  return { engine, close: async () => { await engine.dispose() } }
+  return { model, close: async () => { await model.dispose() } }
 }

@@ -2,16 +2,16 @@
 import { promises as fsp } from "fs"
 import * as path from "path"
 import { fileURLToPath } from "url"
-import { RwkvEngine } from "./src/engine/rwkv-engine.ts"
-import { EngineHTTPClient } from "./src/engine/engine-http-client.ts"
-import type { Engine } from "./src/core/types.ts"
-import { SessionManager } from "./src/core/session.ts"
-import { StorytellerAgent } from "./src/agents/storyteller/index.ts"
-import { AgentLoop } from "./src/core/agent-loop.ts"
-import { AgentEngine } from "./src/core/agent-engine.ts"
-import { GatewayServer } from "./src/gateway/server.ts"
-import { Tui } from "./src/channels/tui/index.ts"
-import { GenerateOpts, DEFAULT_GEN_OPTS } from "./src/core/types.ts"
+import { RwkvModel } from "./model/rwkv-model.ts"
+import { HttpModel } from "./model/http-model.ts"
+import type { Model } from "./types.ts"
+import { SessionManager } from "./session/session.ts"
+import { StorytellerAgent } from "./agents/storyteller/index.ts"
+import { AgentLoop } from "./agent/loop.ts"
+import { SessionHost } from "./session/session-host.ts"
+import { GatewayServer } from "./gateway/server.ts"
+import { Tui } from "./tui/index.ts"
+import { GenerateOpts, DEFAULT_GEN_OPTS } from "./types.ts"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -50,29 +50,29 @@ async function main() {
   }
 }
 
-function createEngine(modelPath: string, stateDir: string): Engine {
+function createModel(modelPath: string, stateDir: string): Model {
   if (engineUrl) {
-    console.error(`Engine: remote (${engineUrl})`)
-    return new EngineHTTPClient(engineUrl)
+    console.error(`Model: remote (${engineUrl})`)
+    return new HttpModel(engineUrl)
   }
-  return new RwkvEngine(modelPath, stateDir)
+  return new RwkvModel(modelPath, stateDir)
 }
 
 async function runGateway() {
   const gwStateDir = path.join(SESSIONS_DIR, "_gateway")
   console.error(`RWKV Gateway | port: ${gatewayPort} | model: ${path.basename(modelPath)}`)
 
-  const engine = createEngine(modelPath, gwStateDir)
-  await engine.init(gpuArg, loraPaths)
-  const agent = new AgentEngine(engine, gwStateDir)
-  await agent.init()
-  const server = new GatewayServer(agent, WEBAPP_DIR)
+  const model = createModel(modelPath, gwStateDir)
+  await model.init(gpuArg, loraPaths)
+  const host = new SessionHost(model, gwStateDir)
+  await host.init()
+  const server = new GatewayServer(host, WEBAPP_DIR)
 
   await server.start(gatewayPort)
   console.error(`  API:  http://0.0.0.0:${gatewayPort}`)
   console.error(`  WS:   ws://0.0.0.0:${gatewayPort}`)
   console.error(`  Web:  http://0.0.0.0:${gatewayPort}`)
-  console.error(`  Sessions: ${(await agent.listSessions()).length}`)
+  console.error(`  Sessions: ${(await host.listSessions()).length}`)
 
   const shutdown = async () => {
     console.error("\nShutting down...")
@@ -109,8 +109,8 @@ async function runTui() {
 async function runCli() {
   const session = new SessionManager(SESSIONS_DIR, story, modelPath)
   const sessionDir = session.sessionDirPath
-  const engine = createEngine(modelPath, sessionDir)
-  const agent = new StorytellerAgent(engine, session, { fixParagraphBreak: fixParagraphs })
+  const model = createModel(modelPath, sessionDir)
+  const agent = new StorytellerAgent(model, session, { fixParagraphBreak: fixParagraphs })
 
   let cleanupAgent: () => Promise<void> = () => agent.dispose()
   let shutdown = false
@@ -132,7 +132,7 @@ async function runCli() {
   console.error(`Session: ${sessionDir}`)
   console.error("---")
 
-  await engine.init(gpuArg, loraPaths)
+  await model.init(gpuArg, loraPaths)
   await agent.init()
 
   let grammar: string | undefined
@@ -154,10 +154,10 @@ async function runCli() {
     case "agent": {
       const prompt = input || "What would you like to do?"
       console.error(`\nAgent mode | max depth: ${agentDepth}\n`)
-      const agentLoop = new AgentLoop(engine, session, agentDepth)
+      const agentLoop = new AgentLoop(model, session, agentDepth)
       cleanupAgent = () => agentLoop.dispose()
       const result = await agentLoop.run(prompt, {
-        onText: (t) => process.stdout.write(t),
+        onText: (t: string) => process.stdout.write(t),
       }, genOpts)
       console.error(`\n---\nGenerated ${result.length} chars`)
       break
@@ -178,14 +178,14 @@ async function runCli() {
       const sub = args[1]
       if (sub === "save") {
         const name = args[2] || `manual_${Date.now()}`
-        const info = await engine.saveCheckpoint(name)
-        session.registerCheckpoint(name, engine.statePath(name))
+        const info = await model.saveCheckpoint(name)
+        session.registerCheckpoint(name, model.statePath(name))
         await session.save()
         console.error(`Saved checkpoint "${name}" (${info.fileSize} bytes)`)
       } else if (sub === "load") {
         const name = args[2]
         if (!name) { console.error("Usage: checkpoint load <name>"); break }
-        await engine.loadCheckpoint(name)
+        await model.loadCheckpoint(name)
         console.error(`Loaded checkpoint "${name}"`)
       } else if (sub === "ls") {
         const sess = session.get()
@@ -206,7 +206,7 @@ async function runCli() {
       const prompt = input || "Create a story plan with chapters, characters, and worldbuilding."
       const planPrompt = `${prompt}\n\nWrite a detailed story plan as a structured outline:`
       console.error(`\nGenerating plan...\n`)
-      const result = await engine.generate(planPrompt, { ...DEFAULT_GEN_OPTS, maxTokens: 2048, temperature: 0.9, ...genOpts })
+      const result = await model.generate(planPrompt, { ...DEFAULT_GEN_OPTS, maxTokens: 2048, temperature: 0.9, ...genOpts })
       console.log(result)
       const planPath = path.join(sessionDir, "_plan.md")
       await fsp.mkdir(sessionDir, { recursive: true })
@@ -241,8 +241,8 @@ async function runCli() {
         if (!inp || inp === "exit") break
         if (inp === "save") {
           const name = `interactive_${Date.now()}`
-          const info = await engine.saveCheckpoint(name)
-          session.registerCheckpoint(name, engine.statePath(name))
+          const info = await model.saveCheckpoint(name)
+          session.registerCheckpoint(name, model.statePath(name))
           await session.save()
           console.error(`Checkpoint saved (${info.fileSize} bytes)`)
           continue
@@ -260,7 +260,7 @@ async function runCli() {
       const cpNames = Object.keys(sess.statePaths.checkpoints)
       if (cpNames.length > 0) {
         const last = cpNames[cpNames.length - 1]
-        await engine.loadCheckpoint(last)
+        await model.loadCheckpoint(last)
         console.error(`Loaded checkpoint: ${last}`)
       } else {
         console.error("No checkpoint found, starting from baseline")
@@ -276,7 +276,7 @@ async function runCli() {
     case "state-info": {
       try {
         const sess = session.get()
-        const stateSize = engine.getStateSize()
+        const stateSize = model.getStateSize()
         console.error(`State size: ${stateSize} bytes (${(stateSize / 1024 / 1024).toFixed(2)} MB)`)
         console.error(`Messages: ${sess.messages.length}`)
         console.error(`Steps: ${sess.stepCount}`)
@@ -302,10 +302,10 @@ async function runCli() {
           const text = args.find((a) => a.startsWith("--text="))?.split("=").slice(1).join("=")
             || input
           if (!text) { console.error("Provide expert text via --text=... or as trailing argument"); break }
-          const expert = await engine.mose.createExpert(name, text)
+          const expert = await model.mose.createExpert(name, text)
           console.error(`Expert "${name}" created (${expert.stateFile})`)
         } else if (subsub === "ls") {
-          const experts = engine.mose.list()
+          const experts = model.mose.list()
           if (experts.length === 0) { console.error("No experts"); break }
           for (const e of experts) {
             const stat = await fsp.stat(e.stateFile).catch(() => null)
@@ -315,7 +315,7 @@ async function runCli() {
         } else if (subsub === "rm") {
           const name = args[3]
           if (!name) { console.error("Usage: mose expert rm <name>"); break }
-          await engine.mose.removeExpert(name)
+          await model.mose.removeExpert(name)
           console.error(`Removed expert "${name}"`)
         } else {
           console.error("Usage: mose expert create|ls|rm [name]")
@@ -332,7 +332,7 @@ async function runCli() {
           const [name, w] = p.split("=")
           weights[name] = parseFloat(w)
         }
-        await engine.mose.apply(weights)
+        await model.mose.apply(weights)
         console.error(`Blended: ${JSON.stringify(weights)}`)
         break
       }
@@ -346,7 +346,7 @@ async function runCli() {
           const [name, w] = p.split("=")
           weights[name] = parseFloat(w)
         }
-        const result = await engine.generateWithBlend(prompt, Object.keys(weights).length > 0 ? weights : undefined)
+        const result = await model.generateWithBlend(prompt, Object.keys(weights).length > 0 ? weights : undefined)
         console.log(result)
         break
       }
@@ -383,7 +383,7 @@ Subcommands:
         const scaleRaw = args.find((a) => a.startsWith("--scale="))?.split("=")[1]
         if (!name || !filePath) { console.error("Usage: lora add <name> --file=<path> [--scale=N]"); break }
         const absPath = filePath.startsWith("/") ? filePath : path.join(PROJECT_ROOT, filePath)
-        engine.loraMgr.add(name, absPath, scaleRaw ? parseFloat(scaleRaw) : 1.0)
+        model.loraMgr.add(name, absPath, scaleRaw ? parseFloat(scaleRaw) : 1.0)
         console.error(`LoRA "${name}" registered (${absPath})`)
         break
       }
@@ -391,14 +391,14 @@ Subcommands:
       if (sub === "rm") {
         const name = args[2]
         if (!name) { console.error("Usage: lora rm <name>"); break }
-        engine.loraMgr.remove(name)
+        model.loraMgr.remove(name)
         console.error(`Removed LoRA "${name}"`)
         break
       }
 
       if (sub === "ls") {
-        const adapters = engine.loraMgr.list()
-        const active = engine.loraMgr.getActive()
+        const adapters = model.loraMgr.list()
+        const active = model.loraMgr.getActive()
         if (adapters.length === 0) { console.error("No LoRA adapters registered"); break }
         for (const a of adapters) {
           const isActive = active.includes(a.name)
@@ -410,13 +410,13 @@ Subcommands:
       if (sub === "activate") {
         const names = args.slice(2)
         if (names.length === 0) { console.error("Usage: lora activate <name> [name ...]"); break }
-        await engine.loraMgr.activate(...names)
+        await model.loraMgr.activate(...names)
         console.error(`Activated LoRA: ${names.join(", ")}`)
         break
       }
 
       if (sub === "deactivate") {
-        await engine.loraMgr.deactivateAll()
+        await model.loraMgr.deactivateAll()
         console.error("All LoRA adapters deactivated")
         break
       }

@@ -1,7 +1,7 @@
 import { promises as fsp } from "fs"
 import * as path from "path"
 import crypto from "crypto"
-import { RwkvSession, RwkvMessage } from "./types.ts"
+import { RwkvSession, RwkvMessage } from "../types.ts"
 
 const SESSIONS_DIR = "sessions"
 

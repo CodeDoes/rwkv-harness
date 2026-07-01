@@ -3,7 +3,7 @@ import * as http from "http"
 import * as path from "path"
 import { fileURLToPath } from "url"
 import { WebSocketServer, WebSocket } from "ws"
-import { AgentEngine } from "../core/agent-engine.ts"
+import { SessionHost } from "../session/session-host.ts"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -12,14 +12,14 @@ const PROJECT_ROOT = path.resolve(__dirname, "../..")
 let channelIdCounter = 0
 
 export class GatewayServer {
-  private agent: AgentEngine
+  private host: SessionHost
   private app: express.Express
   private server: http.Server
   private wss: WebSocketServer
   private channels: Map<number, WebSocket> = new Map()
 
-  constructor(agent: AgentEngine, webappDir?: string) {
-    this.agent = agent
+  constructor(host: SessionHost, webappDir?: string) {
+    this.host = host
 
     this.app = express()
     this.app.use(express.json())
@@ -41,8 +41,8 @@ export class GatewayServer {
 
     this.app.get("/sessions", async (_req, res) => {
       try {
-        const sessions = await this.agent.listSessions()
-        const current = this.agent.getCurrentSession()
+        const sessions = await this.host.listSessions()
+        const current = this.host.getCurrentSession()
         res.json({ sessions, current: current.label })
       } catch (err: any) {
         res.status(500).json({ error: err.message })
@@ -53,8 +53,8 @@ export class GatewayServer {
       try {
         const { label } = req.body
         if (!label) { res.status(400).json({ error: "label required" }); return }
-        const session = await this.agent.createSession(label)
-        const messages = this.agent.getMessages()
+        const session = await this.host.createSession(label)
+        const messages = this.host.getMessages()
         this.broadcast({ type: "session_created", session, messages })
         res.json({ session, messages })
       } catch (err: any) {
@@ -64,8 +64,8 @@ export class GatewayServer {
 
     this.app.post("/sessions/:label/switch", async (req, res) => {
       try {
-        const session = await this.agent.switchSession(req.params.label)
-        const messages = this.agent.getMessages()
+        const session = await this.host.switchSession(req.params.label)
+        const messages = this.host.getMessages()
         this.broadcast({ type: "session_switched", session, messages })
         res.json({ session, messages })
       } catch (err: any) {
@@ -75,9 +75,9 @@ export class GatewayServer {
 
     this.app.delete("/sessions/:label", async (req, res) => {
       try {
-        await this.agent.deleteSession(req.params.label)
-        const current = this.agent.getCurrentSession()
-        const messages = this.agent.getMessages()
+        await this.host.deleteSession(req.params.label)
+        const current = this.host.getCurrentSession()
+        const messages = this.host.getMessages()
         this.broadcast({ type: "session_deleted", label: req.params.label, current, messages })
         res.json({ deleted: req.params.label, current, messages })
       } catch (err: any) {
@@ -86,7 +86,7 @@ export class GatewayServer {
     })
 
     this.app.get("/sessions/:label/messages", (req, res) => {
-      const messages = this.agent.getMessages(req.params.label)
+      const messages = this.host.getMessages(req.params.label)
       res.json({ messages })
     })
 
@@ -96,7 +96,7 @@ export class GatewayServer {
         if (!prompt) { res.status(400).json({ error: "prompt required" }); return }
 
         let fullResult = ""
-        const result = await this.agent.chat(prompt, {
+        const result = await this.host.chat(prompt, {
           onToken: (t) => { fullResult += t },
         })
         res.json({ result })
@@ -107,8 +107,8 @@ export class GatewayServer {
 
     // ---- MoSE endpoints ----
 
-    const mose = () => this.agent.engine.mose
-    const loraMgr = () => this.agent.engine.loraMgr
+    const mose = () => this.host._model.mose
+    const loraMgr = () => this.host._model.loraMgr
 
     /** POST /mose/experts — create a new expert state from text. */
     this.app.post("/mose/experts", async (req, res) => {
@@ -155,7 +155,7 @@ export class GatewayServer {
         const { prompt, blend, ...genOpts } = req.body
         if (!prompt) { res.status(400).json({ error: "prompt required" }); return }
         await mose().apply(blend)
-        const result = await this.agent.engine.generate(prompt, genOpts)
+        const result = await this.host._model.generate(prompt, genOpts)
         res.json({ result })
       } catch (err: any) {
         res.status(500).json({ error: err.message })
@@ -169,7 +169,7 @@ export class GatewayServer {
         if (!segments || !Array.isArray(segments)) {
           res.status(400).json({ error: "segments array required" }); return
         }
-        const result = await this.agent.engine.generateWithSegments(segments)
+        const result = await this.host._model.generateWithSegments(segments)
         res.json({ result })
       } catch (err: any) {
         res.status(500).json({ error: err.message })
@@ -235,9 +235,9 @@ export class GatewayServer {
       ws.send(JSON.stringify({
         type: "connected",
         channelId,
-        session: this.agent.getCurrentSession(),
-        messages: this.agent.getMessages(),
-        sessions: Array.from((this.agent as any).sessions.keys()),
+        session: this.host.getCurrentSession(),
+        messages: this.host.getMessages(),
+        sessions: Array.from((this.host as any).sessions.keys()),
       }))
 
       ws.on("message", async (raw) => {
@@ -253,7 +253,7 @@ export class GatewayServer {
               }
               this.broadcast({ type: "user_message", content: prompt, channelId })
 
-              await this.agent.chat(prompt, {
+              await this.host.chat(prompt, {
                 onToken: (t) => {
                   this.broadcast({ type: "token", text: t, channelId })
                 },
@@ -261,30 +261,30 @@ export class GatewayServer {
 
               this.broadcast({
                 type: "done",
-                session: this.agent.getCurrentSession(),
-                messages: this.agent.getMessages(),
+                session: this.host.getCurrentSession(),
+                messages: this.host.getMessages(),
               })
               break
             }
 
             case "create_session": {
-              const session = await this.agent.createSession(msg.label)
-              const messages = this.agent.getMessages()
+              const session = await this.host.createSession(msg.label)
+              const messages = this.host.getMessages()
               this.broadcast({ type: "session_created", session, messages })
               break
             }
 
             case "switch_session": {
-              const session = await this.agent.switchSession(msg.label)
-              const messages = this.agent.getMessages()
+              const session = await this.host.switchSession(msg.label)
+              const messages = this.host.getMessages()
               this.broadcast({ type: "session_switched", session, messages })
               break
             }
 
             case "delete_session": {
-              await this.agent.deleteSession(msg.label)
-              const current = this.agent.getCurrentSession()
-              const messages = this.agent.getMessages()
+              await this.host.deleteSession(msg.label)
+              const current = this.host.getCurrentSession()
+              const messages = this.host.getMessages()
               this.broadcast({ type: "session_deleted", label: msg.label, current, messages })
               break
             }
@@ -337,7 +337,7 @@ export class GatewayServer {
       ws.close()
     }
     this.channels.clear()
-    await this.agent.dispose()
+    await this.host.dispose()
     return new Promise((resolve) => this.server.close(() => resolve()))
   }
 }

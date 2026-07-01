@@ -3,14 +3,14 @@ import * as fs from "fs"
 import * as path from "path"
 import * as os from "os"
 import { fileURLToPath } from "url"
-import { MockEngine } from "./mock-engine.ts"
+import { MockModel } from "./mock-engine.ts"
 import { toolHandlers as storytellerHandlers, toolDefs as storytellerToolDefs } from "../agents/storyteller/tools/index.ts"
 import { toolDefs as envoyToolDefs } from "../agents/envoy/tools/index.ts"
-import { ToolCall, ToolResult, ToolDef, ToolHandler, DEFAULT_GEN_OPTS, type Engine } from "../core/types.ts"
-import { bootEngine, EngineHTTPClient } from "../engine/engine-http-client.ts"
+import { ToolCall, ToolResult, ToolDef, ToolHandler, DEFAULT_GEN_OPTS, type Model } from "../types.ts"
+import { bootRemoteModel, HttpModel } from "../model/http-model.ts"
 import mkdirTool from "../tools/mkdir.ts"
 import { TraceWriter } from "./trace-writer.ts"
-import { toolsToGbnfWithThink } from "../core/tool-registry.ts"
+import { toolsToGbnfWithThink } from "../tools/registry.ts"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PROJECT_ROOT = path.resolve(__dirname, "../..")
@@ -69,7 +69,7 @@ function toolsToXml(defs: ToolDef[]): string {
 // ──────────────────────────────────────────────
 
 async function runAgentLoop(
-  engine: MockEngine | Engine,
+  engine: MockModel | Model,
   systemPrompt: string,
   toolHandlers: Record<string, ToolHandler>,
   userInput: string,
@@ -300,7 +300,7 @@ async function runOracle(baseDir: string, W: (p: string) => string): Promise<boo
 
   const trace = new TraceWriter("oracle").open()
   trace.infoAbout("run", { mode: "oracle", baseDir })
-  const engine = new MockEngine(mockResponses)
+  const engine = new MockModel(mockResponses)
   const userInput = "Create a story about dragons with 3 first chapters and an up-to-date wiki."
   const storytellerHandlersWithMkdir: Record<string, ToolHandler> = {
     ...storytellerHandlers,
@@ -417,8 +417,8 @@ async function runLive(baseDir: string, W: (p: string) => string, args: string[]
   console.error(`GPU: ${gpu}`)
   console.error(`Workspace: ${baseDir}`)
 
-  const { engine, close } = await bootEngine({ modelPath, gpu })
-  const engineClient = engine as EngineHTTPClient
+  const { model, close } = await bootRemoteModel({ modelPath, gpu })
+  const engineClient = model as HttpModel
 
   const envoyGrammar = toolsToGbnfWithThink(envoyToolDefs)
   const storytellerGrammar = toolsToGbnfWithThink(storytellerToolDefs)
@@ -429,8 +429,8 @@ async function runLive(baseDir: string, W: (p: string) => string, args: string[]
   let finalText = ""
   let subToolCalls = 0
 
-  const { AgentLoop } = await import("../core/agent-loop.ts")
-  const { SessionManager } = await import("../core/session.ts")
+  const { AgentLoop } = await import("../agent/loop.ts")
+  const { SessionManager } = await import("../session/session.ts")
   const storytellerPrompt = buildStorytellerPrompt(storytellerToolDefs)
 
   const trace = new TraceWriter("live").open()
@@ -447,7 +447,7 @@ async function runLive(baseDir: string, W: (p: string) => string, args: string[]
   trace.inputBlock(envoyPrompt + "\n\nUser: " + userInput + "\n\nAssistant:")
 
   const result = await runAgentLoop(
-    engine as Engine,
+    model as Model,
     envoyPrompt,
     {
       spawn_agent: async (args) => {
@@ -460,19 +460,19 @@ async function runLive(baseDir: string, W: (p: string) => string, args: string[]
         const subSession = new SessionManager(baseDir, "storyteller-dragons", modelPath)
         await subSession.ensureDir()
 
-        const subLoop = new AgentLoop(engine as Engine, subSession, 15, {
+        const subLoop = new AgentLoop(model as Model, subSession, 15, {
           systemPrompt: storytellerPrompt,
           toolDefs: storytellerToolDefs,
           toolHandlers: {
             ...storytellerHandlers,
-            mkdir: (margs) => mkdirTool({ path: margs.path as string }),
+            mkdir: (margs: Record<string, unknown>) => mkdirTool({ path: margs.path as string }),
           },
         })
 
         trace?.infoSection("storyteller sub-loop")
         trace?.infoAbout("input", { chars: String(task.length) })
         const subResult = await subLoop.run(task, {
-          onText: (t) => {
+          onText: (t: string) => {
             process.stdout.write(t)
             trace?.outputStream(t)
           },

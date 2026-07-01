@@ -1,20 +1,20 @@
 import { promises as fsp } from "fs"
 import * as path from "path"
 import { fileURLToPath } from "url"
-import type { Engine } from "../../core/types.ts"
-import { SessionManager } from "../../core/session.ts"
-import { AgentLoop } from "../../core/agent-loop.ts"
-import { GenerateOpts, GenerateCallbacks } from "../../core/types.ts"
+import type { Model } from "../../types.ts"
+import { SessionManager } from "../../session/session.ts"
+import { AgentLoop } from "../../agent/loop.ts"
+import { GenerateOpts, GenerateCallbacks } from "../../types.ts"
 import { toolDefs as envoyToolDefs, toolHandlers as envoyHandlers, toolsToXml } from "./tools/index.ts"
 import { toolDefs as storytellerToolDefs, toolHandlers as storytellerHandlers } from "../storyteller/tools/index.ts"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 export class EnvoyAgent {
-  private engine: Engine
+  private model: Model
 
-  constructor(engine: Engine) {
-    this.engine = engine
+  constructor(model: Model) {
+    this.model = model
   }
 
   async chat(
@@ -28,7 +28,7 @@ export class EnvoyAgent {
       "utf-8",
     )
 
-    const loop = new AgentLoop(this.engine, agentSession, 10, {
+    const loop = new AgentLoop(this.model, agentSession, 10, {
       systemPrompt,
       toolDefs: envoyToolDefs,
       toolHandlers: {
@@ -51,7 +51,7 @@ export class EnvoyAgent {
               "utf-8",
             )
 
-            const subLoop = new AgentLoop(this.engine, storySession, 15, {
+            const subLoop = new AgentLoop(this.model, storySession, 15, {
               systemPrompt: instructions,
               toolDefs: storytellerToolDefs,
               toolHandlers: storytellerHandlers,

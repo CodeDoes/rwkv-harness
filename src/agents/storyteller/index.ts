@@ -1,10 +1,10 @@
 import { promises as fsp } from "fs"
 import * as path from "path"
 import { fileURLToPath } from "url"
-import type { Engine } from "../../core/types.ts"
-import { SessionManager } from "../../core/session.ts"
-import { StoryState, ChapterInfo, DEFAULT_GEN_OPTS, GenerateOpts } from "../../core/types.ts"
-import { toolsToGbnfResponse } from "../../core/tool-registry.ts"
+import type { Model } from "../../types.ts"
+import { SessionManager } from "../../session/session.ts"
+import { StoryState, ChapterInfo, DEFAULT_GEN_OPTS, GenerateOpts } from "../../types.ts"
+import { toolsToGbnfResponse } from "../../tools/registry.ts"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -18,17 +18,17 @@ function cleanOutput(text: string): string {
 const RESPONSE_GRAMMAR = toolsToGbnfResponse()
 
 export class StorytellerAgent {
-  private engine: Engine
+  private model: Model
   private session: SessionManager
   private storyState: StoryState | null = null
   private systemPrompt: string = ""
 
   constructor(
-    engine: Engine,
+    model: Model,
     session: SessionManager,
     _config?: { fixParagraphBreak?: boolean },
   ) {
-    this.engine = engine
+    this.model = model
     this.session = session
   }
 
@@ -41,10 +41,10 @@ export class StorytellerAgent {
     const sess = await this.session.load()
 
     if (sess.status === "new") {
-      await this.engine.bakeSystemPrompt(this.systemPrompt)
+      await this.model.bakeSystemPrompt(this.systemPrompt)
       await this.session.save()
     } else {
-      await this.engine.loadBaseline()
+      await this.model.loadBaseline()
     }
   }
 
@@ -55,7 +55,7 @@ export class StorytellerAgent {
     const history = this.session.buildPrompt(this.systemPrompt)
     const fullPrompt = history + userInput + "\n\n"
 
-    const raw = await this.engine.generate(fullPrompt, {
+    const raw = await this.model.generate(fullPrompt, {
       ...DEFAULT_GEN_OPTS,
       temperature: 0.85,
       stopSequences: ["\x03"],
@@ -83,7 +83,7 @@ export class StorytellerAgent {
     const history = this.session.buildPrompt(this.systemPrompt)
     const fullPrompt = history + userInput + "\n\n"
 
-    const raw = await this.engine.generateStream(
+    const raw = await this.model.generateStream(
       fullPrompt,
       { onText },
       { ...DEFAULT_GEN_OPTS, temperature: 0.85, stopSequences: ["\x03"], grammar: RESPONSE_GRAMMAR, ...opts },
@@ -100,8 +100,8 @@ export class StorytellerAgent {
 
   async saveChapterCheckpoint(chapterNum: number, slug: string) {
     const name = `chapter_${String(chapterNum).padStart(3, "0")}_${slug}`
-    await this.engine.saveCheckpoint(name)
-    this.session.registerCheckpoint(name, this.engine.statePath(name))
+    await this.model.saveCheckpoint(name)
+    this.session.registerCheckpoint(name, this.model.statePath(name))
     await this.session.save()
   }
 
@@ -111,19 +111,19 @@ export class StorytellerAgent {
       (k) => k.startsWith(`chapter_${String(chapterNum).padStart(3, "0")}_`),
     )
     if (!key) {
-      await this.engine.loadBaseline()
+      await this.model.loadBaseline()
       return false
     }
-    await this.engine.loadCheckpoint(key)
+    await this.model.loadCheckpoint(key)
     return true
   }
 
   async resumeFromBaseline() {
-    await this.engine.loadBaseline()
+    await this.model.loadBaseline()
   }
 
   async dispose() {
     await this.session.save()
-    await this.engine.dispose()
+    await this.model.dispose()
   }
 }

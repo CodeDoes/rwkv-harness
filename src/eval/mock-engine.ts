@@ -1,4 +1,4 @@
-export class MockEngine {
+export class MockModel {
   private responses: string[]
   private callIndex = 0
   public prompts: string[] = []

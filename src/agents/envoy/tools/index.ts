@@ -1,4 +1,4 @@
-import { ToolDef, ToolHandler } from "../../../core/types.ts"
+import { ToolDef, ToolHandler } from "../../../types.ts"
 
 export const toolDefs: ToolDef[] = [
   {

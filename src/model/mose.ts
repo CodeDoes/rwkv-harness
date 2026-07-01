@@ -1,8 +1,8 @@
 import { promises as fsp } from "fs"
 import * as fs from "fs"
 import * as path from "path"
-import { RwkvEngine } from "./rwkv-engine.ts"
-import type { MoSEConfig, MoSEExpert, MoseBlendWeights, MoSEHandle, LoRAHandle } from "../core/types.ts"
+import { RwkvModel } from "./rwkv-model.ts"
+import type { MoSEConfig, MoSEExpert, MoseBlendWeights, MoSEHandle, LoRAHandle } from "../types.ts"
 
 /**
  * MoSE — Mixture of State Experts via binary state blending.
@@ -25,12 +25,12 @@ import type { MoSEConfig, MoSEExpert, MoseBlendWeights, MoSEHandle, LoRAHandle }
  * recurrent state tensors (float32), so element-wise blending is safe.
  */
 export class MoSEEngine implements MoSEHandle {
-  private engine: RwkvEngine
+  private model: RwkvModel
   private stateDir: string
   private experts: Map<string, MoSEExpert> = new Map()
 
-  constructor(engine: RwkvEngine, stateDir: string) {
-    this.engine = engine
+  constructor(model: RwkvModel, stateDir: string) {
+    this.model = model
     this.stateDir = stateDir
   }
 
@@ -59,7 +59,7 @@ export class MoSEEngine implements MoSEHandle {
    * saves result as expert state file, restores original.
    */
   async createExpert(name: string, text: string, weight: number = 1.0): Promise<MoSEExpert> {
-    const seq = this.engine.sequence
+    const seq = this.model.sequence
     const statePath = this.expertPath(name)
 
     // Save current state so we can restore after baking
@@ -75,7 +75,7 @@ export class MoSEEngine implements MoSEHandle {
       }
 
       // Bake expert text into state
-      const tokens = this.engine.tokenize(text)
+      const tokens = this.model.tokenize(text)
       await seq.evaluateWithoutGeneratingNewTokens(tokens)
       await seq.saveStateToFile(statePath)
     } finally {
@@ -187,7 +187,7 @@ export class MoSEEngine implements MoSEHandle {
    */
   async apply(weights?: MoseBlendWeights): Promise<void> {
     const blendFile = await this.blend(weights)
-    await this.engine.sequence.loadStateFromFile(blendFile, { acceptRisk: true })
+    await this.model.sequence.loadStateFromFile(blendFile, { acceptRisk: true })
     await fsp.unlink(blendFile).catch(() => {})
   }
 
@@ -202,8 +202,8 @@ export class MoSEEngine implements MoSEHandle {
   async segmentRoute(segments: { text: string; blend: MoseBlendWeights }[]): Promise<void> {
     for (const seg of segments) {
       await this.apply(seg.blend)
-      const tokens = this.engine.tokenize(seg.text)
-      await this.engine.sequence.evaluateWithoutGeneratingNewTokens(tokens)
+      const tokens = this.model.tokenize(seg.text)
+      await this.model.sequence.evaluateWithoutGeneratingNewTokens(tokens)
     }
   }
 
@@ -228,12 +228,12 @@ export class MoSEEngine implements MoSEHandle {
  * and per-request scale adjustment.
  */
 export class LoRAManager implements LoRAHandle {
-  private engine: RwkvEngine
+  private model: RwkvModel
   private adapters: Map<string, { filePath: string; scale: number }> = new Map()
   private active: string[] = []
 
-  constructor(engine: RwkvEngine) {
-    this.engine = engine
+  constructor(model: RwkvModel) {
+    this.model = model
   }
 
   /** Register a LoRA adapter file under a name. */
@@ -270,7 +270,7 @@ export class LoRAManager implements LoRAHandle {
       activeNames.push(name)
     }
     if (paths.length > 0) {
-      await this.engine.setLora(paths)
+      await this.model.setLora(paths)
     }
     this.active = activeNames
   }
@@ -278,7 +278,7 @@ export class LoRAManager implements LoRAHandle {
   /** Deactivate all LoRA adapters. */
   async deactivateAll(): Promise<void> {
     // Load with empty array to clear LoRAs (or pass single no-op path)
-    await this.engine.setLora([])
+    await this.model.setLora([])
     this.active = []
   }
 }

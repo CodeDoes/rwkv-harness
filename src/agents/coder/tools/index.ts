@@ -1,4 +1,4 @@
-import { ToolDef, ToolHandler } from "../../../core/types.ts"
+import { ToolDef, ToolHandler } from "../../../types.ts"
 import file_read from "../../../tools/read.ts"
 import file_write from "../../../tools/write.ts"
 import file_edit from "../../../tools/edit.ts"

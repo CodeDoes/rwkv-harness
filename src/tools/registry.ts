@@ -1,11 +1,11 @@
-import { ToolDef, ToolHandler } from "./types.ts"
-import file_read from "../tools/read.ts"
-import file_write from "../tools/write.ts"
-import file_edit from "../tools/edit.ts"
-import findTool from "../tools/find.ts"
-import mkdirTool from "../tools/mkdir.ts"
-import lsTool from "../tools/ls.ts"
-import grepTool from "../tools/grep.ts"
+import { ToolDef, ToolHandler } from "../types.ts"
+import file_read from "./read.ts"
+import file_write from "./write.ts"
+import file_edit from "./edit.ts"
+import findTool from "./find.ts"
+import mkdirTool from "./mkdir.ts"
+import lsTool from "./ls.ts"
+import grepTool from "./grep.ts"
 
 export const toolDefs: ToolDef[] = [
   {
