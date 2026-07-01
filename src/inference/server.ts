@@ -2,7 +2,7 @@ import express from "express"
 import * as http from "http"
 import * as path from "path"
 import { fileURLToPath } from "url"
-import { InferenceBackend, type StreamCallbacks } from "./backend.ts"
+import { InferenceBackend, type StreamCallbacks, type BackendConfig } from "./backend.ts"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -11,12 +11,10 @@ const PROJECT_ROOT = path.resolve(__dirname, "..")
 export class InferenceServer {
   private app: express.Express
   private server: http.Server
-  private backend: InferenceBackend
-  private slotsDir: string
+  backend: InferenceBackend
 
-  constructor(slotsDir: string, port = 3100) {
-    this.slotsDir = slotsDir
-    this.backend = new InferenceBackend(slotsDir)
+  constructor(slotsDir: string, config: BackendConfig = {}) {
+    this.backend = new InferenceBackend(slotsDir, config)
     this.app = express()
     this.app.use(express.json({ limit: "100mb" }))
     this.server = http.createServer(this.app)
@@ -25,13 +23,24 @@ export class InferenceServer {
 
   private routes() {
     this.app.get("/health", (_req, res) => {
-      res.json({ status: "ok" })
+      res.json({
+        status: "ok",
+        concurrency: this.backend.concurrencyInfo(),
+        loaded: this.backend.isLoaded(),
+      })
     })
 
     this.app.post("/v1/generate", async (req, res) => {
+      if (!this.backend.tryAcquire()) {
+        res.status(429).json({
+          error: "too many concurrent requests",
+          concurrency: this.backend.concurrencyInfo(),
+        })
+        return
+      }
       try {
         const { modelPath, loraPaths, stateSlot, prompt, ...opts } = req.body
-        if (!modelPath || !prompt) return res.status(400).json({ error: "modelPath and prompt required" })
+        if (!modelPath || !prompt) { res.status(400).json({ error: "modelPath and prompt required" }); return }
 
         await this.backend.ensureModel(modelPath, loraPaths ?? [])
 
@@ -41,29 +50,40 @@ export class InferenceServer {
           } catch { /* slot doesn't exist yet, skip */ }
         }
 
-        const text = await this.backend.generate(prompt, opts)
-        res.json({ text })
+        const result = await this.backend.generate(prompt, opts)
+        res.json(result)
       } catch (err: any) {
         res.status(500).json({ error: err.message })
+      } finally {
+        this.backend.release()
       }
     })
 
     this.app.post("/v1/evaluate", async (req, res) => {
+      if (!this.backend.tryAcquire()) {
+        res.status(429).json({
+          error: "too many concurrent requests",
+          concurrency: this.backend.concurrencyInfo(),
+        })
+        return
+      }
       try {
         const { modelPath, loraPaths, text } = req.body
-        if (!modelPath || !text) return res.status(400).json({ error: "modelPath and text required" })
+        if (!modelPath || !text) { res.status(400).json({ error: "modelPath and text required" }); return }
         await this.backend.ensureModel(modelPath, loraPaths ?? [])
         const result = await this.backend.evaluate(text)
         res.json(result)
       } catch (err: any) {
         res.status(500).json({ error: err.message })
+      } finally {
+        this.backend.release()
       }
     })
 
     this.app.post("/v1/state/save", async (req, res) => {
       try {
         const { modelPath, loraPaths, slotName } = req.body
-        if (!modelPath || !slotName) return res.status(400).json({ error: "modelPath and slotName required" })
+        if (!modelPath || !slotName) { res.status(400).json({ error: "modelPath and slotName required" }); return }
         const result = await this.backend.saveStateSlot(slotName, modelPath, loraPaths ?? [])
         res.json(result)
       } catch (err: any) {
@@ -74,7 +94,7 @@ export class InferenceServer {
     this.app.post("/v1/state/load", async (req, res) => {
       try {
         const { modelPath, loraPaths, slotName } = req.body
-        if (!modelPath || !slotName) return res.status(400).json({ error: "modelPath and slotName required" })
+        if (!modelPath || !slotName) { res.status(400).json({ error: "modelPath and slotName required" }); return }
         await this.backend.loadStateSlot(slotName, modelPath, loraPaths ?? [])
         res.json({ loaded: slotName })
       } catch (err: any) {
@@ -85,9 +105,7 @@ export class InferenceServer {
     this.app.post("/v1/tokenize", (req, res) => {
       try {
         const { modelPath, text } = req.body
-        if (!modelPath || !text) return res.status(400).json({ error: "modelPath and text required" })
-        // Need model loaded first — load without state
-        // Tokenize only needs model, not sequence, so we handle it differently
+        if (!modelPath || !text) { res.status(400).json({ error: "modelPath and text required" }); return }
         res.status(501).json({ error: "tokenize requires model to be loaded first via generate/evaluate" })
       } catch (err: any) {
         res.status(500).json({ error: err.message })
@@ -98,6 +116,14 @@ export class InferenceServer {
       const prompt = req.query.prompt as string
       const modelPath = req.query.modelPath as string
       if (!prompt || !modelPath) { res.status(400).json({ error: "prompt and modelPath required" }); return }
+
+      if (!this.backend.tryAcquire()) {
+        res.status(429).json({
+          error: "too many concurrent requests",
+          concurrency: this.backend.concurrencyInfo(),
+        })
+        return
+      }
 
       res.writeHead(200, {
         "Content-Type": "text/event-stream",
@@ -112,10 +138,12 @@ export class InferenceServer {
         onDone: (meta) => {
           res.write(`data: ${JSON.stringify({ type: "done", ...meta })}\n\n`)
           res.end()
+          this.backend.release()
         },
         onError: (err: string) => {
           res.write(`data: ${JSON.stringify({ type: "error", error: err })}\n\n`)
           res.end()
+          this.backend.release()
         },
       }
 
@@ -125,10 +153,20 @@ export class InferenceServer {
           temperature: parseFloat(req.query.temperature as string) || 0.8,
           topP: parseFloat(req.query.topP as string) || 0.9,
         }))
-        .catch((err) => callbacks.onError?.(err instanceof Error ? err.message : String(err)))
+        .catch((err) => {
+          callbacks.onError?.(err instanceof Error ? err.message : String(err))
+          this.backend.release()
+        })
     })
 
     this.app.post("/v1/stream", async (req, res) => {
+      if (!this.backend.tryAcquire()) {
+        res.status(429).json({
+          error: "too many concurrent requests",
+          concurrency: this.backend.concurrencyInfo(),
+        })
+        return
+      }
       try {
         const { modelPath, loraPaths, stateSlot, prompt, ...opts } = req.body
         if (!prompt) { res.status(400).json({ error: "prompt required" }); return }
@@ -164,6 +202,18 @@ export class InferenceServer {
           res.write(`data: ${JSON.stringify({ type: "error", error: err.message })}\n\n`)
           res.end()
         }
+      } finally {
+        this.backend.release()
+      }
+    })
+
+    /** POST /v1/reset — reset the sequence context. */
+    this.app.post("/v1/reset", async (_req, res) => {
+      try {
+        await this.backend.resetSequence()
+        res.json({ status: "reset" })
+      } catch (err: any) {
+        res.status(500).json({ error: err.message })
       }
     })
   }
@@ -176,6 +226,7 @@ export class InferenceServer {
   }
 
   async stop(): Promise<void> {
+    await this.backend.dispose()
     return new Promise((resolve) => {
       this.server.close(() => resolve())
     })

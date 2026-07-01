@@ -190,6 +190,9 @@ export interface BootOpts {
   gpu?: string
   loraPaths?: string[]
   port?: number
+  maxConcurrency?: number
+  hardMaxTokens?: number
+  idleTimeoutMs?: number
 }
 
 export async function bootEngine(opts: BootOpts): Promise<{ engine: EngineHTTPClient; close: () => Promise<void> }> {
@@ -204,11 +207,15 @@ export async function bootEngine(opts: BootOpts): Promise<{ engine: EngineHTTPCl
   } catch { /* down */ }
 
   if (!alive) {
-    const child = spawn(
-      "pnpm",
-      ["tsx", "inference-server.ts", `--port=${port}`, `--slots-dir=inference-slots/${port}`],
-      { detached: true, stdio: "ignore", cwd: process.cwd() },
-    )
+    const args = [
+      "tsx", "inference-server.ts",
+      `--port=${port}`,
+      `--slots-dir=inference-slots/${port}`,
+      `--max-concurrency=${opts.maxConcurrency ?? 4}`,
+      `--max-tokens=${opts.hardMaxTokens ?? 4096}`,
+      `--idle-timeout=${opts.idleTimeoutMs ?? 300000}`,
+    ]
+    const child = spawn("pnpm", args, { detached: true, stdio: "ignore", cwd: process.cwd() })
     child.unref()
     const deadline = Date.now() + 180_000
     while (Date.now() < deadline) {
