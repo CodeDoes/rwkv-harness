@@ -66,10 +66,9 @@ export class EvalController {
         ...envoy.toolHandlers,
         spawn_agent: async (args) => {
           const agentName = args.agent as string
-          let workspacePath = (args.workspace as string) || ""
-          workspacePath = workspacePath.replace(/^\//, "").replace(/^workspace\//, "")
-          if (!workspacePath) workspacePath = `${agentName}-${Date.now().toString(36)}`
-          workspacePath = `workspace/${workspacePath}`
+          const task = (args.task as string) || `${userInput} Write files to workspace/${agentName}-${Date.now().toString(36)}`
+          const pathMatch = task.match(/workspace\/[^\s,;]+/)
+          const workspacePath = pathMatch ? pathMatch[0] : `workspace/${agentName}-${Date.now().toString(36)}`
           await mkdirTool({ path: workspacePath })
           const task = (args.task as string) || `${userInput} Write files to ${workspacePath}`
           this.traceWriter.infoSection("spawn_agent: storyteller")
@@ -161,10 +160,10 @@ export class EvalController {
   findStoryDir(baseDir: string): string | null {
     const workspace = path.join(baseDir, "workspace")
     try {
-      for (const entry of fs.readdirSync(workspace)) {
-        const full = path.join(workspace, entry)
-        if (fs.statSync(full).isDirectory()) return entry
-      }
+      const dirs = fs.readdirSync(workspace).filter(e => fs.statSync(path.join(workspace, e)).isDirectory())
+      if (dirs.length === 0) return null
+      dirs.sort((a, b) => fs.statSync(path.join(workspace, b)).mtimeMs - fs.statSync(path.join(workspace, a)).mtimeMs)
+      return dirs[0]
     } catch { }
     return null
   }
