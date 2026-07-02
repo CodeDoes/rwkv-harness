@@ -1,6 +1,9 @@
 import * as fs from "fs";
-export default function ({ path, content }: { path: string; content: string }) {
-  fs.writeFileSync(path, content);
-  const size = fs.statSync(path).size;
-  return { path, bytes: size, status: "written" };
+import * as path from "path";
+export default function ({ path: p, content }: { path: string; content: string }) {
+  const dir = path.dirname(p);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(p, content);
+  const size = fs.statSync(p).size;
+  return { success: true, path: p, bytes: size, status: "written" };
 }
