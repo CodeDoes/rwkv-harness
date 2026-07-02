@@ -9,3 +9,5 @@ inference-3210.pid
 rwkv-harness/
 native/**/target/
 *.node
+.gateway.log
+.gateway.pid
