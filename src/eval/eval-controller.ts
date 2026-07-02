@@ -52,8 +52,6 @@ export class EvalController {
     let storytellerOutput = ""
     const { envoy, storyteller, userInput, onSpawnResult } = cfg
 
-this.traceWriter.prompt("System: " + envoy.instructions + "\n\nUser: " + userInput + "\n\nAssistant:")
-
     const session = new SessionManager(this.baseDir, this.sessionId, "envoy")
     await session.ensureDir()
 
