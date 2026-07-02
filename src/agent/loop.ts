@@ -1,23 +1,24 @@
+import { readFileSync } from "fs"
+import { dirname, resolve } from "path"
+import { fileURLToPath } from "url"
 import type { Model } from "../types.ts"
 import { SessionManager } from "../session/session.ts"
 import { GenerateOpts, DEFAULT_GEN_OPTS, GenerateCallbacks, ToolCall, ToolResult, ToolDef, ToolHandler } from "../types.ts"
 import { toolDefs as defaultToolDefs, toolHandlers as defaultHandlers, toolsToXml, toolsToGbnfWithThink } from "../tools/registry.ts"
 
-const DEFAULT_SYSTEM_PREAMBLE = `You can use tools to read and write files. When you need to use a tool, output:
-<tool_call>
-{"name": "tool_name", "arguments": { ... }}
-</tool_call>
-Then I'll run the tool and give you the result.`
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const AGENTS_DIR = resolve(__dirname, "../agents")
 
-const DEFAULT_EXAMPLES = `User: list files in /tmp
-Assistant: <think>Let me list the directory.</think>|<tool_call>{"name":"ls","arguments":{"path":"/tmp"}}</tool_call>
-User: <tool_response>{"name":"ls","result":{"success":true,"data":["file1.txt","file2.txt"]}}</tool_response>
-Assistant: Here are the files in /tmp: file1.txt and file2.txt.
+const DEFAULT_SYSTEM_PREAMBLE = `You can use tools to read and write files. Output tool calls inside <tool_call> tags.`
 
-User: read file.txt
-Assistant: <think>I need to read the file.</think>|<tool_call>{"name":"read","arguments":{"path":"file.txt"}}</tool_call>
-User: <tool_response>{"name":"read","result":{"success":true,"data":"file contents here"}}</tool_response>
-Assistant: The file contains: file contents here.`
+function loadDefaultExamples(): string {
+  try {
+    return readFileSync(resolve(AGENTS_DIR, "default/examples.mdx"), "utf-8").trim()
+  } catch {
+    return ""
+  }
+}
+const DEFAULT_EXAMPLES = loadDefaultExamples()
 
 const TOOL_CALL_RE = /<tool_call>\s*(\{[\s\S]*?\})\s*<\/tool_call>/g
 
@@ -109,13 +110,13 @@ export class AgentLoop {
       const rawRaw = await this.model.generate(fullPrompt, {
         ...DEFAULT_GEN_OPTS,
         temperature: 0.7,
-        stopSequences: ["</tool_call>", "\n\n", "\x03"],
+        stopSequences: ["</tool_call>", "\n\nUser:", "\x03"],
         grammar: toolsToGbnfWithThink(this.config.toolDefs),
         ...opts,
       })
 
       const endedWithToolCall = rawRaw.endsWith("</tool_call>")
-      const endedWithUser = !endedWithToolCall && (rawRaw.endsWith("\n\n") || rawRaw.endsWith("\x03"))
+      const endedWithUser = !endedWithToolCall && (rawRaw.includes("\n\nUser:") || rawRaw.endsWith("\x03"))
       const raw = rawRaw.replace(/\x03/g, "")
       callbacks?.onRawOutput?.(raw)
 
@@ -155,7 +156,13 @@ export class AgentLoop {
   }
 
   private buildSystemPrompt(): string {
-    return this.config.examples + "\n\nSystem:\n" + this.config.systemPrompt + "\n\nTools:\n" + toolsToXml(this.config.toolDefs)
+    const tools = this.config.toolDefs.map(t => {
+      const params = t.parameters.map(p =>
+        `${p.name}${p.required ? "" : "?"}: ${p.type}`
+      ).join(", ")
+      return `- ${t.name}(${params}) — ${t.description}`
+    }).join("\n")
+    return this.config.examples + "\n\nSystem: " + this.config.systemPrompt + "\n\nTools:\n" + tools
   }
 
   parseToolCalls(text: string): {

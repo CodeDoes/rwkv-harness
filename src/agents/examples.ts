@@ -33,7 +33,7 @@ function formatEntry(entry: ExampleEntry, dir: string, char: string): string {
     case "tool_call":
       return `Assistant:\n<tool_call>\n${content}\n</tool_call>`
     case "tool_result":
-      return `User:\n<tool_result>\n${content}\n</tool_result>`
+      return `User:\n<tool_response>\n${content}\n</tool_response>`
   }
 }
 

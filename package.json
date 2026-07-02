@@ -15,6 +15,8 @@
     "gateway:stop": "kill $(cat .gateway.pid 2>/dev/null) 2>/dev/null; rm -f .gateway.pid; echo 'Gateway stopped'",
     "gateway:restart": "pnpm gateway:stop && sleep 1 && pnpm gateway:start",
     "gateway:status": "if [ -f .gateway.pid ] && kill -0 $(cat .gateway.pid) 2>/dev/null; then echo 'Gateway running PID '$(cat .gateway.pid); else echo 'Gateway not running'; fi",
+    "gateway:logs": "cat .gateway.log",
+    "gateway:tail-logs": "tail -f .gateway.log",
     "tui": "tsx src/cli.ts tui",
     "agent": "tsx src/cli.ts agent",
     "eval": "tsx src/eval/story-creation.eval.ts",

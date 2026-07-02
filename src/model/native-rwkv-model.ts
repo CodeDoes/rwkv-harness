@@ -173,14 +173,17 @@ export class NativeRwkvModel implements Model {
       ]) as string
 
       let finalText = result
-      if (stopSequences.length > 0) {
-        for (const seq of stopSequences) {
-          const idx = finalText.indexOf(seq)
-          if (idx !== -1) {
-            finalText = finalText.slice(0, idx + seq.length)
-            break
-          }
+      let earliest = -1
+      let earliestSeq = ""
+      for (const seq of stopSequences) {
+        const idx = finalText.indexOf(seq)
+        if (idx !== -1 && (earliest === -1 || idx < earliest)) {
+          earliest = idx
+          earliestSeq = seq
         }
+      }
+      if (earliest !== -1) {
+        finalText = finalText.slice(0, earliest + earliestSeq.length)
       }
 
       callbacks.onDone?.()
@@ -191,15 +194,17 @@ export class NativeRwkvModel implements Model {
         timeout,
       ]) as string
       let text = result
-
-      if (stopSequences.length > 0) {
-        for (const seq of stopSequences) {
-          const idx = text.indexOf(seq)
-          if (idx !== -1) {
-            text = text.slice(0, idx + seq.length)
-            break
-          }
+      let earliest = -1
+      let earliestSeq = ""
+      for (const seq of stopSequences) {
+        const idx = text.indexOf(seq)
+        if (idx !== -1 && (earliest === -1 || idx < earliest)) {
+          earliest = idx
+          earliestSeq = seq
         }
+      }
+      if (earliest !== -1) {
+        text = text.slice(0, earliest + earliestSeq.length)
       }
 
       callbacks.onDone?.()

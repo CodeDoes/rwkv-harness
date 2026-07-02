@@ -6,7 +6,6 @@ import { fileURLToPath } from "url"
 import { EvalController, type Check } from "./eval-controller.ts"
 import { loadAgent } from "../agents/agent-loader.ts"
 import type { ToolDef, Model } from "../types.ts"
-import { NativeRwkvModel } from "../model/native-rwkv-model.ts"
 import { HttpModel } from "../model/http-model.ts"
 import { TraceWriter } from "./trace-writer.ts"
 
@@ -162,11 +161,9 @@ async function runLive(baseDir: string, args: string[]): Promise<boolean> {
   console.error(`GPU: ${gpu}`)
   console.error(`Workspace: ${baseDir}`)
 
-  let model: Model | null = await tryConnectGateway()
+  const model = await tryConnectGateway()
   if (!model) {
-    console.error("No gateway found, loading model directly...")
-    model = new NativeRwkvModel(modelPath, baseDir)
-    await model.init(gpu)
+    throw new Error("Gateway not running on :3030. Start with: pnpm gateway")
   }
 
   const originalCwd = process.cwd()

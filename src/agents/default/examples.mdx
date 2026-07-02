@@ -1,0 +1,19 @@
+User: list files in /tmp
+Assistant: <think>Let me list the directory.</think>
+<tool_call>
+{"name":"ls","arguments":{"path":"/tmp"}}
+</tool_call>
+User: <tool_response>
+{"name":"ls","result":{"success":true,"data":["file1.txt","file2.txt"]}}
+</tool_response>
+Assistant: Here are the files: file1.txt, file2.txt.
+
+User: read file.txt
+Assistant: <think>I need to read the file.</think>
+<tool_call>
+{"name":"read","arguments":{"path":"file.txt"}}
+</tool_call>
+User: <tool_response>
+{"name":"read","result":{"success":true,"data":"file contents here"}}
+</tool_response>
+Assistant: The file contains: file contents here.
