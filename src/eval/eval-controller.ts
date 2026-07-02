@@ -52,8 +52,7 @@ export class EvalController {
     let storytellerOutput = ""
     const { envoy, storyteller, userInput, onSpawnResult } = cfg
 
-    this.traceWriter.inputBlock(envoy.instructions + "\n\nUser: " + userInput + "\n\nAssistant:")
-    this.traceWriter.outputBlock()
+this.traceWriter.prompt("System: " + envoy.instructions + "\n\nUser: " + userInput + "\n\nAssistant:")
 
     const session = new SessionManager(this.baseDir, this.sessionId, "envoy")
     await session.ensureDir()
@@ -66,14 +65,9 @@ export class EvalController {
         ...envoy.toolHandlers,
         spawn_agent: async (args) => {
           const agentName = args.agent as string
-          const task = (args.task as string) || `${userInput} Write files to workspace/${agentName}-${Date.now().toString(36)}`
-          const pathMatch = task.match(/workspace\/[^\s,;]+/)
-          const workspacePath = pathMatch ? pathMatch[0] : `workspace/${agentName}-${Date.now().toString(36)}`
+          const workspacePath = (args.workspace as string) || `workspace/${agentName}-${Date.now().toString(36)}`
           await mkdirTool({ path: workspacePath })
-          const task = (args.task as string) || `${userInput} Write files to ${workspacePath}`
-          this.traceWriter.infoSection("spawn_agent: storyteller")
-          this.traceWriter.infoAbout("task", { description: task })
-          this.traceWriter.infoAbout("workspace", { path: workspacePath })
+          const taskText = (args.task as string) || `${userInput} Write files to ${workspacePath}`
           console.error(`\nENVOY spawned "${agentName}"`)
 
           await this.model.saveCheckpoint("envoy-pause")
@@ -96,33 +90,27 @@ export class EvalController {
               const contentPreview = toolArgs.content ? ` (${String(toolArgs.content).slice(0, 60).replace(/\n/g, "\\n")}...)` : ""
               console.error(`  STORYTELLER depth: ${name}${pathStr}${contentPreview}`)
             },
-            onToolResult: (result) => this.traceWriter.toolResultBlock(result),
+            onToolResult: () => {},
           })
 
-          this.traceWriter.infoSection("storyteller sub-loop")
-          let subFirst = true
-          const subResult = await subLoop.run(task, {
-            onRawOutput: (raw) => {
-              if (!subFirst) this.traceWriter.outputBlock()
-              subFirst = false
-              this.traceWriter.outputStream(raw)
-            },
+          const subResult = await subLoop.run(taskText, {
+            onPrompt: (prompt) => this.traceWriter.prompt(prompt),
+            onRawOutput: (raw) => this.traceWriter.output(raw),
             onText: (t: string) => {
               process.stdout.write(t)
               storytellerOutput += t
             },
           }, { temperature: 0.5 })
 
-          this.traceWriter.infoSection("summarization")
-          const summaryPrompt = `\n\nUser: List the files you created.\n\nAssistant: I created files at`
+          const summaryPrompt = `\n\nUser: Briefly report what was accomplished in the workspace.\n\nAssistant:`
+          this.traceWriter.prompt(summaryPrompt)
           const summaryRaw = await this.model.generate(summaryPrompt, {
             temperature: 0.3,
             maxTokens: 100,
             stopSequences: ["\n\n", "\x03"],
           })
           const report = summaryRaw.replace(/\x03/g, "").trim()
-          this.traceWriter.outputBlock()
-          this.traceWriter.outputStream(report)
+          this.traceWriter.output(report)
 
           await this.model.loadCheckpoint("envoy-pause")
 
@@ -138,13 +126,9 @@ export class EvalController {
       },
     })
 
-    let firstOutput = true
     const finalText = await agentLoop.run(userInput, {
-      onRawOutput: (raw) => {
-        if (!firstOutput) this.traceWriter.outputBlock()
-        firstOutput = false
-        this.traceWriter.outputStream(raw)
-      },
+      onPrompt: (prompt) => this.traceWriter.prompt(prompt),
+      onRawOutput: (raw) => this.traceWriter.output(raw),
       onText: (t: string) => process.stdout.write(t),
     }, { maxTokens: 300 })
 

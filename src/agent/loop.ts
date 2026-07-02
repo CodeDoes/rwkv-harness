@@ -111,6 +111,7 @@ export class AgentLoop {
     let depth = 0
 
     while (depth < this.maxDepth) {
+      callbacks?.onPrompt?.(fullPrompt)
       const rawRaw = await this.model.generate(fullPrompt, {
         ...DEFAULT_GEN_OPTS,
         temperature: 0.7,

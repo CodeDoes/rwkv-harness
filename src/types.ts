@@ -50,6 +50,7 @@ export interface GenerateCallbacks {
   onText?: (text: string) => void
   onRawOutput?: (raw: string) => void
   onDone?: () => void
+  onPrompt?: (prompt: string) => void
 }
 
 export const DEFAULT_GEN_OPTS: GenerateOpts = {

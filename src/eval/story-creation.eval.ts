@@ -35,8 +35,7 @@ async function runOracle(baseDir: string): Promise<boolean> {
   const storyPath = "workspace/dragons"
   const jobTask = `${USER_INPUT} Write files to ${storyPath}`
 
-  const trace = new TraceWriter("oracle").open()
-  trace.infoAbout("run", { mode: "oracle", baseDir })
+const trace = new TraceWriter("oracle").open({ mode: "oracle", baseDir })
 
   function think(content: string): string {
     return `<think>${content}</think>\n`
@@ -169,10 +168,7 @@ async function runLive(baseDir: string, args: string[]): Promise<boolean> {
   const originalCwd = process.cwd()
   process.chdir(baseDir)
 
-  const trace = new TraceWriter("live").open()
-  const infoData: Record<string, string> = { model: path.basename(modelPath), gpu, workspace: baseDir }
-  infoData.mose = "none"
-  trace.infoAbout("run", infoData)
+  const trace = new TraceWriter("live").open({ mode: "live", model: path.basename(modelPath), gpu, workspace: baseDir })
 
   const envoy = await loadAgent("envoy")
   const storyteller = await loadAgent("storyteller")
