@@ -22,7 +22,8 @@
     "eval": "tsx src/eval/story-creation.eval.ts",
     "eval:live": "tsx src/eval/story-creation.eval.ts --live",
     "build:native": "cd native/rwkv-bindings/rwkv-bindings && cargo build --release && cp target/release/librwkv_bindings.so ../../rwkv-bindings.linux-x64-gnu.node",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:trace": "tsx src/eval/trace-writer.test.ts"
   },
   "keywords": [],
   "author": "",

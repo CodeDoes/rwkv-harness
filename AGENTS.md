@@ -24,6 +24,7 @@ Native RWKV harness — napi-rs Rust binding to web-rwkv 0.10. No node-llama-cpp
 | `lora ...` | LoRA adapter CLI |
 | `eval` | Oracle-mode eval (mock engine, no model needed) |
 | `eval:live` | Live eval with real model |
+| `test:trace` | TraceWriter shape tests (21/21) |
 | `typecheck` | `tsc --noEmit` |
 
 ## Model
