@@ -9,6 +9,7 @@ interface RwSessionInstance {
   tokenize(text: string): number[]
   detokenize(tokens: number[]): string
   infer(tokens: number[], maxTokens?: number, temperature?: number, topP?: number): Promise<string>
+  inferStream(tokens: number[], onToken: (token: string) => void, maxTokens?: number, temperature?: number, topP?: number): Promise<string>
   getStateSize(): number
   saveState(path: string): Promise<void>
   loadState(path: string): Promise<void>
@@ -147,28 +148,51 @@ export class NativeRwkvModel implements Model {
     const topP = (opts.topP as number) ?? DEFAULT_GEN_OPTS.topP
     const stopSequences = (opts.stopSequences as string[]) ?? []
 
+    binding.clearGrammar()
     const grammar = opts.grammar as string | undefined
     if (grammar) {
       binding.setGrammar(grammar)
     }
 
     const tokens = binding.tokenize(prompt)
-    const result = await binding.infer(tokens, maxTokens, temperature, topP)
-    let text = result
 
-    if (stopSequences.length > 0) {
-      for (const seq of stopSequences) {
-        const idx = text.indexOf(seq)
-        if (idx !== -1) {
-          text = text.slice(0, idx + seq.length)
-          break
+    if (callbacks.onText) {
+      let text = ""
+      const result = await binding.inferStream(tokens, (token: string) => {
+        text += token
+        callbacks.onText!(token)
+      }, maxTokens, temperature, topP)
+
+      let finalText = result
+      if (stopSequences.length > 0) {
+        for (const seq of stopSequences) {
+          const idx = finalText.indexOf(seq)
+          if (idx !== -1) {
+            finalText = finalText.slice(0, idx + seq.length)
+            break
+          }
         }
       }
-    }
 
-    callbacks.onText?.(text)
-    callbacks.onDone?.()
-    return text
+      callbacks.onDone?.()
+      return finalText
+    } else {
+      const result = await binding.infer(tokens, maxTokens, temperature, topP)
+      let text = result
+
+      if (stopSequences.length > 0) {
+        for (const seq of stopSequences) {
+          const idx = text.indexOf(seq)
+          if (idx !== -1) {
+            text = text.slice(0, idx + seq.length)
+            break
+          }
+        }
+      }
+
+      callbacks.onDone?.()
+      return text
+    }
   }
 
   async generateWithBlend(

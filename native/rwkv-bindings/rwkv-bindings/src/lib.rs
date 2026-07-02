@@ -1,4 +1,5 @@
 use napi::bindgen_prelude::*;
+use napi::threadsafe_function::*;
 use napi_derive::napi;
 use half::f16;
 
@@ -104,7 +105,19 @@ impl RWSession {
 
         let token_bytes = tokenizer.token_index_to_bytes();
         let token_strings: Vec<String> = token_bytes.iter()
-            .map(|b| String::from_utf8_lossy(b).to_string())
+            .map(|b| {
+                // Lossless encoding: ASCII 0x00-0x7F pass through,
+                // non-ASCII 0x80-0xFF map to PUA U+E000-U+E07F
+                let mut s = String::with_capacity(b.len());
+                for &byte in b {
+                    if byte < 0x80 {
+                        s.push(byte as char);
+                    } else {
+                        s.push(char::from_u32(0xE000 + (byte as u32 - 0x80)).unwrap());
+                    }
+                }
+                s
+            })
             .collect();
         self.token_strings = token_strings;
 
@@ -315,6 +328,147 @@ impl RWSession {
                 .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
             let word = String::from_utf8_lossy(&decoded).to_string();
             output.push_str(&word);
+
+            prompt.batches[0].push(token);
+        }
+
+        Ok(output)
+    }
+
+    #[napi]
+    pub async fn infer_stream(
+        &self,
+        tokens: Vec<u32>,
+        #[napi(ts_arg_type = "(token: string) => void")] on_token: ThreadsafeFunction<String, ErrorStrategy::Fatal>,
+        max_tokens: Option<u32>,
+        temperature: Option<f64>,
+        top_p: Option<f64>,
+    ) -> Result<String> {
+        let tsfn = on_token;
+
+        let runtime = self
+            .runtime
+            .as_ref()
+            .ok_or_else(|| Error::new(Status::GenericFailure, "Runtime not initialized"))?;
+        let tokenizer = self
+            .tokenizer
+            .as_ref()
+            .ok_or_else(|| Error::new(Status::GenericFailure, "Tokenizer not initialized"))?;
+
+        let max_tokens = max_tokens.unwrap_or(256) as usize;
+        let temperature = temperature.unwrap_or(0.8) as f32;
+        let top_p = top_p.unwrap_or(0.9) as f32;
+
+        let mut grammar_state = self.grammar.as_ref()
+            .map(|g| GrammarState::new(g.clone()))
+            .transpose()
+            .map_err(|e| Error::new(Status::GenericFailure, format!("Grammar state error: {}", e)))?;
+
+        let vocab_refs: Vec<&str> = self.token_strings.iter()
+            .map(|s| s.as_str())
+            .collect();
+
+        let mut output = String::new();
+        let batch = RnnInputBatch::new(tokens, RnnOption::Last);
+        let mut prompt = RnnInput::new(vec![batch], 128);
+
+        // Flush all prompt tokens before starting generation
+        loop {
+            let info_opt = (&prompt).into_iter().next();
+            if info_opt.is_none() {
+                break;
+            }
+            let (input_result, result) = runtime
+                .infer(prompt)
+                .await
+                .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
+            prompt = input_result;
+            if prompt.num_token() == 0 {
+                let logits = result[0].0.clone();
+                if logits.size() == 0 {
+                    break;
+                }
+                let mut probs = logits.to_vec();
+                if let Some(ref gs) = grammar_state {
+                    let allowed = gs.allowed_tokens(&vocab_refs);
+                    if !allowed.iter().any(|&x| x) {
+                        break;
+                    }
+                    for (i, &ok) in allowed.iter().enumerate() {
+                        if !ok {
+                            probs[i] = f32::NEG_INFINITY;
+                        }
+                    }
+                }
+                let token = sample(&probs, temperature, top_p);
+                if token == 0 {
+                    break;
+                }
+                if let Some(ref mut gs) = grammar_state {
+                    if let Some(word) = self.token_strings.get(token as usize) {
+                        let _ = gs.accept_token(word);
+                    }
+                }
+                let decoded = tokenizer
+                    .decode(&[token])
+                    .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
+                let word = String::from_utf8_lossy(&decoded).to_string();
+                output.push_str(&word);
+                tsfn.call(
+                    word,
+                    ThreadsafeFunctionCallMode::NonBlocking,
+                );
+                prompt.batches[0].push(token);
+                break;
+            }
+        }
+
+        for _ in 0..max_tokens.saturating_sub(1) {
+            let input = prompt.clone();
+            let (input_result, result) = runtime
+                .infer(input)
+                .await
+                .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
+            prompt = input_result;
+
+            let logits = result[0].0.clone();
+            let token = if logits.size() > 0 {
+                let mut probs = logits.to_vec();
+                if let Some(ref gs) = grammar_state {
+                    let allowed = gs.allowed_tokens(&vocab_refs);
+                    if !allowed.iter().any(|&x| x) {
+                        break;
+                    }
+                    for (i, &ok) in allowed.iter().enumerate() {
+                        if !ok {
+                            probs[i] = f32::NEG_INFINITY;
+                        }
+                    }
+                }
+                sample(&probs, temperature, top_p)
+            } else {
+                break;
+            };
+
+            if token == 0 {
+                break;
+            }
+
+            if let Some(ref mut gs) = grammar_state {
+                if let Some(word) = self.token_strings.get(token as usize) {
+                    let _ = gs.accept_token(word);
+                }
+            }
+
+            let decoded = tokenizer
+                .decode(&[token])
+                .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
+            let word = String::from_utf8_lossy(&decoded).to_string();
+            output.push_str(&word);
+            tsfn.call(
+                word,
+                ThreadsafeFunctionCallMode::NonBlocking,
+            );
 
             prompt.batches[0].push(token);
         }

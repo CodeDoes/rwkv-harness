@@ -213,9 +213,6 @@ importers:
       filesniffer:
         specifier: ^1.0.3
         version: 1.0.3
-      gbnf:
-        specifier: ^0.1.41
-        version: 0.1.41
       simple-grep:
         specifier: ^0.0.1
         version: 0.0.1
@@ -598,9 +595,6 @@ packages:
 
   function-bind@1.1.2:
     resolution: {integrity: sha512-7XHNxH7qX9xG5mIwxkhumTox/MIRNcOgDrxWsMt2pAr23WHp6MrRlN7FBSFpCpr+oVO0F744iUgR82nJMfG2SA==}
-
-  gbnf@0.1.41:
-    resolution: {integrity: sha512-p6DpLMpetkru/+0UqDaRt+pp2pr+5fWr24DUZtCk5YUnXC90PIXec5wc3sASSvjxWkq662B4wllfP2H9XySNqg==}
 
   generator-function@2.0.1:
     resolution: {integrity: sha512-SFdFmIJi+ybC0vjlHN0ZGVGHc3lgE0DxPAT0djjVg+kjOnSqclqmj0KQ7ykTOLP6YxoqOvuAODGdcHJn+43q3g==}
@@ -1220,8 +1214,6 @@ snapshots:
     optional: true
 
   function-bind@1.1.2: {}
-
-  gbnf@0.1.41: {}
 
   generator-function@2.0.1: {}
 

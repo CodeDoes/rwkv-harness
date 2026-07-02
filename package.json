@@ -11,7 +11,7 @@
     "checkpoint": "tsx src/cli.ts checkpoint",
     "state-info": "tsx src/cli.ts state-info",
     "gateway": "tsx src/cli.ts gateway",
-    "gateway:start": "nohup tsx src/cli.ts gateway --native > .gateway.log 2>&1 & echo $! > .gateway.pid && echo 'Gateway started PID '$(cat .gateway.pid)",
+    "gateway:start": "nohup tsx src/cli.ts gateway > .gateway.log 2>&1 & echo $! > .gateway.pid && echo 'Gateway started PID '$(cat .gateway.pid)",
     "gateway:stop": "kill $(cat .gateway.pid 2>/dev/null) 2>/dev/null; rm -f .gateway.pid; echo 'Gateway stopped'",
     "gateway:restart": "pnpm gateway:stop && sleep 1 && pnpm gateway:start",
     "gateway:status": "if [ -f .gateway.pid ] && kill -0 $(cat .gateway.pid) 2>/dev/null; then echo 'Gateway running PID '$(cat .gateway.pid); else echo 'Gateway not running'; fi",
@@ -19,6 +19,7 @@
     "agent": "tsx src/cli.ts agent",
     "eval": "tsx src/eval/story-creation.eval.ts",
     "eval:live": "tsx src/eval/story-creation.eval.ts --live",
+    "build:native": "cd native/rwkv-bindings/rwkv-bindings && cargo build --release && cp target/release/librwkv_bindings.so ../../rwkv-bindings.linux-x64-gnu.node",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [],
@@ -35,7 +36,6 @@
   "dependencies": {
     "express": "^5.2.1",
     "filesniffer": "^1.0.3",
-    "gbnf": "^0.1.41",
     "simple-grep": "^0.0.1",
     "typescript": "^6.0.3",
     "ws": "^8.21.0",

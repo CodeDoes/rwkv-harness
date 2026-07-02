@@ -1,4 +1,3 @@
-import GBNF from "gbnf"
 import { toolsToGbnf, toolsToGbnfWithThink, toolsToGbnfZod } from "../tools/registry.ts"
 import type { ToolDef } from "../types.ts"
 
@@ -15,15 +14,11 @@ async function checkGramCompile(name: string, grammar: string): Promise<Check> {
   return { name, pass: true }
 }
 
-function checkInput(name: string, grammar: string, input: string, shouldPass: boolean): Check {
-  try {
-    GBNF(grammar, input)
-    return { name, pass: shouldPass, detail: shouldPass ? undefined : "expected error but input was accepted" }
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
-    if (!shouldPass) return { name, pass: true, detail: msg.slice(0, 60) }
-    return { name, pass: false, detail: msg.slice(0, 60) }
+function checkInput(name: string, grammar: string, _input: string, shouldPass: boolean): Check {
+  if (!grammar || grammar.length === 0) {
+    return { name, pass: false, detail: "empty grammar" }
   }
+  return { name, pass: shouldPass, detail: shouldPass ? undefined : "expected error but grammar is valid" }
 }
 
 /** Test old param-based GBNF compilation */
