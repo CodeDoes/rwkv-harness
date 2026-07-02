@@ -224,11 +224,17 @@ async function runCli() {
       const prompt = input || "Create a story plan with chapters, characters, and worldbuilding."
       const planPrompt = `${prompt}\n\nWrite a detailed story plan as a structured outline:`
       console.error(`\nGenerating plan...\n`)
-      const result = await model.generate(planPrompt, { ...DEFAULT_GEN_OPTS, maxTokens: 2048, temperature: 0.9, ...genOpts })
-      console.log(result)
+      const { sessionId } = await model.process()
+      const result = await model.generate({
+        sessionId,
+        prompt: planPrompt,
+        opts: { ...DEFAULT_GEN_OPTS, maxTokens: 2048, temperature: 0.9, ...genOpts },
+      })
+      console.log(result.text)
+      await model.interrupt(sessionId)
       const planPath = path.join(sessionDir, "_plan.md")
       await fsp.mkdir(sessionDir, { recursive: true })
-      await fsp.writeFile(planPath, result, "utf-8")
+      await fsp.writeFile(planPath, result.text, "utf-8")
       console.error(`\nPlan saved to ${planPath}`)
       break
     }
@@ -364,8 +370,15 @@ async function runCli() {
           const [name, w] = p.split("=")
           weights[name] = parseFloat(w)
         }
-        const result = await model.generateWithBlend(prompt, Object.keys(weights).length > 0 ? weights : undefined)
-        console.log(result)
+        const { sessionId } = await model.process()
+        const result = await model.generate({
+          sessionId,
+          prompt,
+          opts: {},
+          blend: Object.keys(weights).length > 0 ? weights : undefined,
+        })
+        await model.interrupt(sessionId)
+        console.log(result.text)
         break
       }
 

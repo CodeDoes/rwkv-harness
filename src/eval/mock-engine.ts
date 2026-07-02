@@ -1,10 +1,20 @@
-import type { Model, GenerateCallbacks, MoseBlendWeights, MoSEHandle, LoRAHandle } from "../types.ts"
+import type {
+  Model,
+  GenerateRequest,
+  GenerateResult,
+  MoSEHandle,
+  LoRAHandle,
+  ProcessOpts,
+  StreamGenerateRequest,
+} from "../types.ts"
 
 export class MockModel implements Model {
   private responses: string[]
   private callIndex = 0
   public prompts: string[] = []
-  public opts: unknown[] = []
+  public interruptCount = 0
+  private defaultSessionId = "mock-default-sid"
+  private aborted = new Set<string>()
 
   constructor(responses: string[]) {
     this.responses = responses
@@ -15,8 +25,15 @@ export class MockModel implements Model {
   tokenize(_text: string): number[] { return [] }
   detokenize(_tokens: number[]): string { return "" }
 
-  async generate(prompt: string, _opts: unknown = {}): Promise<string> {
-    this.prompts.push(prompt)
+  async process(_opts?: ProcessOpts): Promise<{ sessionId: string }> {
+    return { sessionId: this.defaultSessionId }
+  }
+
+  async generate(req: GenerateRequest): Promise<GenerateResult> {
+    this.prompts.push(req.prompt)
+    if (this.aborted.has(req.sessionId) || req.signal?.aborted) {
+      return { sessionId: req.sessionId, text: "", stopReason: "abort" }
+    }
     const response = this.responses[this.callIndex]
     this.callIndex++
     if (response === undefined) {
@@ -24,14 +41,29 @@ export class MockModel implements Model {
         `MockModel: out of responses (called ${this.callIndex} times, only ${this.responses.length} responses)`,
       )
     }
-    return response
+    return { sessionId: req.sessionId, text: response, stopReason: "stop" }
   }
 
-  async generateStream(_prompt: string, callbacks?: GenerateCallbacks, _opts?: Record<string, unknown>): Promise<string> {
-    const result = await this.generate(_prompt)
-    callbacks?.onText?.(result)
-    callbacks?.onDone?.()
-    return result
+  async streamGenerate(req: StreamGenerateRequest): Promise<GenerateResult> {
+    this.prompts.push(req.prompt)
+    if (this.aborted.has(req.sessionId) || req.signal?.aborted) {
+      return { sessionId: req.sessionId, text: "", stopReason: "abort" }
+    }
+    const response = this.responses[this.callIndex]
+    this.callIndex++
+    if (response === undefined) {
+      throw new Error(
+        `MockModel: out of responses (called ${this.callIndex} times, only ${this.responses.length} responses)`,
+      )
+    }
+    req.onToken?.(response)
+    return { sessionId: req.sessionId, text: response, stopReason: "stop" }
+  }
+
+  async interrupt(sessionId: string): Promise<{ stopReason: "Interrupted" }> {
+    this.interruptCount++
+    this.aborted.add(sessionId)
+    return { stopReason: "Interrupted" }
   }
 
   async evaluate(_text: string): Promise<void> {}
@@ -45,16 +77,6 @@ export class MockModel implements Model {
   }
   async loadBaseline(): Promise<void> {}
   getStateSize(): number { return 0 }
-
-  async generateWithBlend(prompt: string, _blend?: MoseBlendWeights, _opts?: Record<string, unknown>): Promise<string> {
-    return this.generate(prompt)
-  }
-  async generateWithSegments(
-    _segments: { text: string; blend: MoseBlendWeights }[],
-    _opts?: Record<string, unknown>,
-  ): Promise<string> {
-    return this.generate("")
-  }
 
   mose: MoSEHandle = {} as MoSEHandle
   loraMgr: LoRAHandle = {} as LoRAHandle

@@ -6,10 +6,27 @@ const model = new NativeRwkvModel(
 )
 await model.init()
 
-const r = await model.generate("Count to 3", { maxTokens: 30, temperature: 0 })
-console.log("generate:", JSON.stringify(r), "len:", r.length)
+const { sessionId: sid1 } = await model.process()
+const r = await model.generate({
+  sessionId: sid1,
+  prompt: "Count to 3",
+  opts: { maxTokens: 30, temperature: 0 },
+})
+console.log("generate:", JSON.stringify(r.text), "len:", r.text.length)
+await model.interrupt(sid1)
 
-const r2 = await model.generateStream("Hello", { onText: (t) => process.stdout.write(">>" + t) }, { maxTokens: 20, temperature: 0.8, topP: 0.9 })
-console.log("\ngenerateStream:", JSON.stringify(r2), "len:", r2.length)
+const { sessionId: sid2 } = await model.process()
+let streamed = ""
+const r2 = await model.streamGenerate({
+  sessionId: sid2,
+  prompt: "Hello",
+  opts: { maxTokens: 20, temperature: 0.8, topP: 0.9 },
+  onToken: (t) => {
+    streamed += t
+    process.stdout.write(">>" + t)
+  },
+})
+console.log("\nstreamGenerate:", JSON.stringify(r2.text), "len:", streamed.length)
+await model.interrupt(sid2)
 
 await model.dispose()

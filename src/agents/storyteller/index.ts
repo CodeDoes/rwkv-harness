@@ -55,15 +55,21 @@ export class StorytellerAgent {
     const history = this.session.buildPrompt(this.systemPrompt)
     const fullPrompt = history + userInput + "\n\n"
 
-    const raw = await this.model.generate(fullPrompt, {
-      ...DEFAULT_GEN_OPTS,
-      temperature: 0.85,
-      stopSequences: ["\x03"],
-      grammar: RESPONSE_GRAMMAR,
-      ...opts,
+    const { sessionId } = await this.model.process({ systemPrompt: this.systemPrompt })
+    const result = await this.model.generate({
+      sessionId,
+      prompt: fullPrompt,
+      opts: {
+        ...DEFAULT_GEN_OPTS,
+        temperature: 0.85,
+        stopSequences: ["\x03"],
+        grammar: RESPONSE_GRAMMAR,
+        ...opts,
+      },
     })
+    await this.model.interrupt(sessionId)
 
-    const rawStripped = raw.replace(/\x03/g, "")
+    const rawStripped = result.text.replace(/\x03/g, "")
     const cleaned = cleanOutput(rawStripped)
     this.session.addMessage({ role: "user", content: userInput })
     this.session.addMessage({ role: "assistant", content: rawStripped })
@@ -83,13 +89,22 @@ export class StorytellerAgent {
     const history = this.session.buildPrompt(this.systemPrompt)
     const fullPrompt = history + userInput + "\n\n"
 
-    const raw = await this.model.generateStream(
-      fullPrompt,
-      { onText },
-      { ...DEFAULT_GEN_OPTS, temperature: 0.85, stopSequences: ["\x03"], grammar: RESPONSE_GRAMMAR, ...opts },
-    )
+    const { sessionId } = await this.model.process({ systemPrompt: this.systemPrompt })
+    const result = await this.model.streamGenerate({
+      sessionId,
+      prompt: fullPrompt,
+      opts: {
+        ...DEFAULT_GEN_OPTS,
+        temperature: 0.85,
+        stopSequences: ["\x03"],
+        grammar: RESPONSE_GRAMMAR,
+        ...opts,
+      },
+      onToken: onText,
+    })
+    await this.model.interrupt(sessionId)
 
-    const rawStripped = raw.replace(/\x03/g, "")
+    const rawStripped = result.text.replace(/\x03/g, "")
     const cleaned = cleanOutput(rawStripped)
     this.session.addMessage({ role: "user", content: userInput })
     this.session.addMessage({ role: "assistant", content: rawStripped })

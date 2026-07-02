@@ -4,6 +4,7 @@ import * as path from "path"
 import { fileURLToPath } from "url"
 import { WebSocketServer, WebSocket } from "ws"
 import { SessionHost } from "../session/session-host.ts"
+import type { GenerateOpts } from "../types.ts"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -111,8 +112,10 @@ export class GatewayServer {
       try {
         const { prompt, ...genOpts } = req.body
         if (!prompt) { res.status(400).json({ error: "prompt required" }); return }
-        const result = await this.host._model.generate(prompt, genOpts)
-        res.json({ text: result })
+        const { sessionId } = await this.host._model.process()
+        const result = await this.host._model.generate({ sessionId, prompt, opts: genOpts as Partial<GenerateOpts> })
+        await this.host._model.interrupt(sessionId)
+        res.json({ text: result.text })
       } catch (err: any) {
         res.status(500).json({ error: err.message })
       }
@@ -129,17 +132,19 @@ export class GatewayServer {
           connection: "keep-alive",
         })
 
+        const { sessionId } = await this.host._model.process()
         let fullResult = ""
-        const result = await this.host._model.generateStream(prompt, {
-          onText: (t) => {
+        const result = await this.host._model.streamGenerate({
+          sessionId,
+          prompt,
+          opts: genOpts as Partial<GenerateOpts>,
+          onToken: (t) => {
             fullResult += t
             res.write(`data: ${JSON.stringify({ type: "token", text: t })}\n\n`)
           },
-          onDone: () => {
-            res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`)
-            res.end()
-          },
-        }, genOpts)
+        })
+        res.write(`data: ${JSON.stringify({ type: "done", sessionId, stopReason: result.stopReason, text: fullResult })}\n\n`)
+        res.end()
       } catch (err: any) {
         res.write(`data: ${JSON.stringify({ type: "error", error: err.message })}\n\n`)
         res.end()
@@ -229,8 +234,10 @@ export class GatewayServer {
         const { prompt, blend, ...genOpts } = req.body
         if (!prompt) { res.status(400).json({ error: "prompt required" }); return }
         await mose().apply(blend)
-        const result = await this.host._model.generate(prompt, genOpts)
-        res.json({ result })
+        const { sessionId } = await this.host._model.process()
+        const result = await this.host._model.generate({ sessionId, prompt, opts: genOpts as Partial<GenerateOpts>, blend })
+        await this.host._model.interrupt(sessionId)
+        res.json({ result: result.text })
       } catch (err: any) {
         res.status(500).json({ error: err.message })
       }
@@ -240,11 +247,19 @@ export class GatewayServer {
     this.app.post("/mose/segment", async (req, res) => {
       try {
         const { segments } = req.body
-        if (!segments || !Array.isArray(segments)) {
+        if (!segments || !Array.isArray(segments) || segments.length === 0) {
           res.status(400).json({ error: "segments array required" }); return
         }
-        const result = await this.host._model.generateWithSegments(segments)
-        res.json({ result })
+        const last = segments[segments.length - 1]
+        const { sessionId } = await this.host._model.process()
+        const result = await this.host._model.generate({
+          sessionId,
+          prompt: last.text,
+          opts: {},
+          segments,
+        })
+        await this.host._model.interrupt(sessionId)
+        res.json({ result: result.text })
       } catch (err: any) {
         res.status(500).json({ error: err.message })
       }

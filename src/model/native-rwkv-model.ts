@@ -1,5 +1,14 @@
 import { createRequire } from "node:module"
-import { DEFAULT_GEN_OPTS, type GenerateCallbacks, type Model, type MoSEHandle, type LoRAHandle, type MoseBlendWeights } from "../types.ts"
+import {
+  DEFAULT_GEN_OPTS,
+  type Model,
+  type MoSEHandle,
+  type LoRAHandle,
+  type ProcessOpts,
+  type GenerateRequest,
+  type GenerateResult,
+  type StreamGenerateRequest,
+} from "../types.ts"
 import { MoSEEngine, LoRAManager } from "./mose.ts"
 
 const GENERATE_TIMEOUT = 120_000
@@ -29,6 +38,12 @@ interface StateInfo {
   fileSize: number
 }
 
+interface LiveSession {
+  id: string
+  aborted: boolean
+  ancestor?: string
+}
+
 let _cachedBinding: RwSessionConstructor | null = null
 
 function loadBinding(): RwSessionConstructor {
@@ -48,6 +63,8 @@ export class NativeRwkvModel implements Model {
   private stateDir: string
   private systemPrompt: string = ""
   private baselinePrologue: string = ""
+  private live: Map<string, LiveSession> = new Map()
+  private sessionSeq = 0
 
   mose!: MoSEHandle & MoSEEngine
   loraMgr!: LoRAHandle & LoRAManager
@@ -127,109 +144,117 @@ export class NativeRwkvModel implements Model {
     await this.ensure().evaluate(text)
   }
 
-  async generate(
-    prompt: string,
-    opts: Record<string, unknown> = {}
-  ): Promise<string> {
-    let result = ""
-    await this.generateStream(prompt, { onText: (t) => { result += t } }, opts)
-    return result
+  async process(opts: ProcessOpts = {}): Promise<{ sessionId: string }> {
+    this.sessionSeq++
+    const sid = `${Date.now().toString(36)}-${this.sessionSeq.toString(36)}`
+    const live: LiveSession = { id: sid, aborted: false, ancestor: opts.stateCheckpoint }
+    this.live.set(sid, live)
+    if (opts.stateCheckpoint) {
+      try {
+        await this.loadCheckpoint(opts.stateCheckpoint)
+        await this.ensure().evaluate(opts.append?.content ?? "")
+      } catch {
+      }
+    } else {
+      await this.loadBaseline()
+      if (opts.append) {
+        await this.ensure().evaluate(opts.append.content)
+      }
+    }
+    return { sessionId: sid }
   }
 
-  async generateStream(
-    prompt: string,
-    callbacks: GenerateCallbacks = {},
-    opts: Record<string, unknown> = {}
-  ): Promise<string> {
+  async interrupt(sessionId: string): Promise<{ stopReason: "Interrupted" }> {
+    const live = this.live.get(sessionId)
+    if (live) live.aborted = true
+    return { stopReason: "Interrupted" }
+  }
+
+  private filterByStopSequences(text: string, stopSequences: string[]): { text: string; stopped: boolean } {
+    if (stopSequences.length === 0) return { text, stopped: false }
+    let earliest = -1
+    let earliestSeq = ""
+    for (const seq of stopSequences) {
+      const idx = text.indexOf(seq)
+      if (idx !== -1 && (earliest === -1 || idx < earliest)) {
+        earliest = idx
+        earliestSeq = seq
+      }
+    }
+    if (earliest !== -1) {
+      return { text: text.slice(0, earliest + earliestSeq.length), stopped: true }
+    }
+    return { text, stopped: false }
+  }
+
+  async generate(req: GenerateRequest): Promise<GenerateResult> {
+    return this.streamGenerate({ ...req, onToken: undefined })
+  }
+
+  async streamGenerate(req: StreamGenerateRequest): Promise<GenerateResult> {
     const binding = this.ensure()
+    const live = this.live.get(req.sessionId)
+    if (live?.aborted) {
+      return { sessionId: req.sessionId, text: "", stopReason: "interrupt" }
+    }
 
-    await this.loadBaseline()
-
-    const maxTokens = (opts.maxTokens as number) ?? DEFAULT_GEN_OPTS.maxTokens
-    const temperature = (opts.temperature as number) ?? DEFAULT_GEN_OPTS.temperature
-    const topP = (opts.topP as number) ?? DEFAULT_GEN_OPTS.topP
-    const stopSequences = (opts.stopSequences as string[]) ?? []
+    const opts = req.opts ?? {}
+    const maxTokens = opts.maxTokens ?? DEFAULT_GEN_OPTS.maxTokens
+    const temperature = opts.temperature ?? DEFAULT_GEN_OPTS.temperature
+    const topP = opts.topP ?? DEFAULT_GEN_OPTS.topP
+    const stopSequences = (opts as Record<string, unknown>).stopSequences as string[] | undefined ?? []
 
     binding.clearGrammar()
     const grammar = opts.grammar as string | undefined
-    if (grammar) {
-      binding.setGrammar(grammar)
-    }
+    if (grammar) binding.setGrammar(grammar)
 
-    const tokens = binding.tokenize(prompt)
+    const tokens = binding.tokenize(req.prompt)
 
     const timeout = new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error(`generate timed out after ${GENERATE_TIMEOUT}ms`)), GENERATE_TIMEOUT)
     )
 
-    if (callbacks.onText) {
-      let text = ""
-      const result = await Promise.race([
-        binding.inferStream(tokens, (token: string) => {
-          text += token
-          callbacks.onText!(token)
-        }, maxTokens, temperature, topP),
-        timeout,
-      ]) as string
-
-      let finalText = result
-      let earliest = -1
-      let earliestSeq = ""
-      for (const seq of stopSequences) {
-        const idx = finalText.indexOf(seq)
-        if (idx !== -1 && (earliest === -1 || idx < earliest)) {
-          earliest = idx
-          earliestSeq = seq
-        }
+    const abortCheck = async () => {
+      while (!live?.aborted && !req.signal?.aborted) {
+        await new Promise((r) => setTimeout(r, 50))
       }
-      if (earliest !== -1) {
-        finalText = finalText.slice(0, earliest + earliestSeq.length)
-      }
-
-      callbacks.onDone?.()
-      return finalText
-    } else {
-      const result = await Promise.race([
-        binding.infer(tokens, maxTokens, temperature, topP),
-        timeout,
-      ]) as string
-      let text = result
-      let earliest = -1
-      let earliestSeq = ""
-      for (const seq of stopSequences) {
-        const idx = text.indexOf(seq)
-        if (idx !== -1 && (earliest === -1 || idx < earliest)) {
-          earliest = idx
-          earliestSeq = seq
-        }
-      }
-      if (earliest !== -1) {
-        text = text.slice(0, earliest + earliestSeq.length)
-      }
-
-      callbacks.onDone?.()
-      return text
+      throw new Error("generation interrupted")
     }
-  }
 
-  async generateWithBlend(
-    prompt: string,
-    blend?: MoseBlendWeights,
-    opts: Record<string, unknown> = {}
-  ): Promise<string> {
-    return this.generate(prompt, opts)
-  }
+    let raw = ""
+    try {
+      if (req.onToken) {
+        const result = await Promise.race([
+          binding.inferStream(tokens, (token: string) => {
+            raw += token
+            req.onToken!(token)
+          }, maxTokens, temperature, topP),
+          abortCheck(),
+          timeout,
+        ]) as string
+        if (result && result.length > raw.length) raw = result
+      } else {
+        const result = await Promise.race([
+          binding.infer(tokens, maxTokens, temperature, topP),
+          abortCheck(),
+          timeout,
+        ]) as string
+        raw = result
+      }
+    } catch (err) {
+      const liveAborted = live?.aborted || req.signal?.aborted
+      if (liveAborted) {
+        return { sessionId: req.sessionId, text: raw, stopReason: "interrupt" }
+      }
+      throw err
+    }
 
-  async generateWithSegments(
-    segments: { text: string; blend: MoseBlendWeights }[],
-    opts: Record<string, unknown> = {}
-  ): Promise<string> {
-    const last = segments.pop()
-    if (!last) return ""
-    return this.generate(last.text, opts)
+    const { text, stopped } = this.filterByStopSequences(raw, stopSequences)
+    return { sessionId: req.sessionId, text, stopReason: stopped ? "stop" : "length" }
   }
 
   async dispose(): Promise<void> {
     this.binding = null
+    this.live.clear()
   }
 }

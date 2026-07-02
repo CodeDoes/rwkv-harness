@@ -104,14 +104,20 @@ this.traceWriter.prompt("System: " + envoy.instructions + "\n\nUser: " + userInp
 
           const summaryPrompt = `\n\nUser: Briefly report what was accomplished in the workspace.\n\nAssistant:`
           this.traceWriter.prompt(summaryPrompt)
-          const summaryRaw = await this.model.generate(summaryPrompt, {
-            temperature: 0.3,
-            maxTokens: 100,
-            stopSequences: ["\n\n", "\x03"],
+          const summaryProc = await this.model.process()
+          const summaryRes = await this.model.generate({
+            sessionId: summaryProc.sessionId,
+            prompt: summaryPrompt,
+            opts: {
+              temperature: 0.3,
+              maxTokens: 100,
+              stopSequences: ["\n\n", "\x03"],
+            },
           })
-          const report = summaryRaw.replace(/\x03/g, "").trim()
+          const report = summaryRes.text.replace(/\x03/g, "").trim()
           this.traceWriter.output(report)
 
+          await this.model.interrupt(summaryProc.sessionId)
           await this.model.loadCheckpoint("envoy-pause")
 
           const extra = onSpawnResult ? onSpawnResult(args, subResult, storySession) : {}

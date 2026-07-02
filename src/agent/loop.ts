@@ -81,6 +81,8 @@ export class AgentLoop {
   private session: SessionManager
   private maxDepth: number
   private config: Required<AgentLoopConfig>
+  private sessionId: string
+  private initPromise: Promise<void>
 
   constructor(model: Model, session: SessionManager, maxDepth = 5, config?: AgentLoopConfig) {
     this.model = model
@@ -94,6 +96,10 @@ export class AgentLoop {
       onToolCall: config?.onToolCall ?? (() => {}),
       onToolResult: config?.onToolResult ?? (() => {}),
     }
+    this.sessionId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+    this.initPromise = model.process({ systemPrompt: this.config.systemPrompt }).then(({ sessionId }) => {
+      this.sessionId = sessionId
+    })
   }
 
   async run(
@@ -104,6 +110,8 @@ export class AgentLoop {
     const sess = this.session.get()
     sess.status = "active"
 
+    await this.initPromise
+
     const history = this.session.buildPrompt(this.buildSystemPrompt(), true)
     const thinkSuffix = userInput.includes("(think") ? "" : " (think a little)"
     let fullPrompt = clean(history + "User: " + userInput + thinkSuffix + "\n\nAssistant:")
@@ -112,13 +120,18 @@ export class AgentLoop {
 
     while (depth < this.maxDepth) {
       callbacks?.onPrompt?.(fullPrompt)
-      const rawRaw = await this.model.generate(fullPrompt, {
-        ...DEFAULT_GEN_OPTS,
-        temperature: 0.7,
-        stopSequences: ["</tool_call>", "\n\nUser:", "\x03"],
-        grammar: toolsToGbnfWithThink(this.config.toolDefs),
-        ...opts,
+      const genRes = await this.model.generate({
+        sessionId: this.sessionId,
+        prompt: fullPrompt,
+        opts: {
+          ...DEFAULT_GEN_OPTS,
+          temperature: 0.7,
+          stopSequences: ["</tool_call>", "\n\nUser:", "\x03"],
+          grammar: toolsToGbnfWithThink(this.config.toolDefs),
+          ...opts,
+        },
       })
+      const rawRaw = genRes.text
 
       const endedWithToolCall = rawRaw.endsWith("</tool_call>")
       const endedWithUser = !endedWithToolCall && (rawRaw.includes("\n\nUser:") || rawRaw.endsWith("\x03"))

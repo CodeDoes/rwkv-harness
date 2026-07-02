@@ -44,6 +44,7 @@ export interface GenerateOpts {
   frequencyPenalty: number
   presencePenalty: number
   grammar?: string
+  stopSequences?: string[]
 }
 
 export interface GenerateCallbacks {
@@ -62,7 +63,33 @@ export const DEFAULT_GEN_OPTS: GenerateOpts = {
   presencePenalty: 0,
 }
 
-export interface ToolDef {
+export interface ProcessOpts {
+  systemPrompt?: string
+  model?: string
+  append?: { role: "system" | "user" | "assistant" | "tool"; content: string }
+  stateCheckpoint?: string
+}
+
+export interface GenerateRequest {
+  sessionId: string
+  prompt: string
+  opts?: Partial<GenerateOpts>
+  signal?: AbortSignal
+  /** MoSE blend weights applied to expert state for this generation. */
+  blend?: MoseBlendWeights
+  /** Multi-segment routing for MoSE pipelines (each segment: text + blend). */
+  segments?: { text: string; blend: MoseBlendWeights }[]
+}
+
+export interface GenerateResult {
+  sessionId: string
+  text: string
+  stopReason: "stop" | "length" | "abort" | "interrupt"
+}
+
+export interface StreamGenerateRequest extends GenerateRequest {
+  onToken?: (token: string) => void
+}export interface ToolDef {
   name: string
   description: string
   parameters: ToolParam[]
@@ -133,8 +160,10 @@ export interface Model {
   dispose(): Promise<void>
   tokenize(text: string): number[]
   detokenize(tokens: number[]): string
-  generate(prompt: string, opts?: Record<string, unknown>): Promise<string>
-  generateStream(prompt: string, callbacks?: GenerateCallbacks, opts?: Record<string, unknown>): Promise<string>
+  process(opts?: ProcessOpts): Promise<{ sessionId: string }>
+  generate(req: GenerateRequest): Promise<GenerateResult>
+  streamGenerate(req: StreamGenerateRequest): Promise<GenerateResult>
+  interrupt(sessionId: string): Promise<{ stopReason: "Interrupted" }>
   evaluate(text: string): Promise<void>
   saveCheckpoint(name: string): Promise<{ filePath: string; fileSize: number }>
   loadCheckpoint(name: string): Promise<void>
@@ -142,8 +171,6 @@ export interface Model {
   bakeSystemPrompt(systemPrompt: string): Promise<{ baselinePath: string; fileSize: number }>
   loadBaseline(): Promise<void>
   getStateSize(): number
-  generateWithBlend(prompt: string, blend?: MoseBlendWeights, opts?: Record<string, unknown>): Promise<string>
-  generateWithSegments(segments: { text: string; blend: MoseBlendWeights }[], opts?: Record<string, unknown>): Promise<string>
   mose: MoSEHandle
   loraMgr: LoRAHandle
 }

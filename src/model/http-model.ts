@@ -1,4 +1,4 @@
-import type { Model, GenerateCallbacks, MoseBlendWeights, MoSEHandle, LoRAHandle, MoSEExpert } from "../types.ts"
+import type { Model, MoseBlendWeights, MoSEHandle, LoRAHandle, MoSEExpert, ProcessOpts, GenerateRequest, GenerateResult, StreamGenerateRequest } from "../types.ts"
 import { spawn } from "child_process"
 
 function trimSlash(s: string): string {
@@ -38,69 +38,81 @@ export class HttpModel implements Model {
 
   private stateSlotName(name: string): string { return name }
 
-  async generate(prompt: string, opts?: Record<string, unknown>): Promise<string> {
-    const r = await jsonReq<{ text: string }>(`${this.url}/v1/generate`, {
+  async process(opts: ProcessOpts = {}): Promise<{ sessionId: string }> {
+    const r = await jsonReq<{ sessionId: string }>(`${this.url}/process`, {
       method: "POST",
-      body: JSON.stringify({
-        modelPath: this._modelPath,
-        loraPaths: this._loraPaths,
-        stateSlot: this._currentSlot,
-        prompt,
-        ...opts,
-      }),
+      body: JSON.stringify({ modelPath: this._modelPath, ...opts }),
     })
-    return r.text
+    return r
   }
 
-  async generateStream(prompt: string, callbacks?: GenerateCallbacks, opts?: Record<string, unknown>): Promise<string> {
-    console.error(`[HTTP-CLIENT] POST ${this.url}/v1/stream, prompt len: ${prompt.length}, opts: ${JSON.stringify(opts).slice(0, 200)}`)
-    const res = await fetch(`${this.url}/v1/stream`, {
+  async generate(req: GenerateRequest): Promise<GenerateResult> {
+    const r = await jsonReq<GenerateResult>(`${this.url}/generate`, {
+      method: "POST",
+      body: JSON.stringify({
+        sessionId: req.sessionId,
+        prompt: req.prompt,
+        opts: req.opts,
+        blend: req.blend,
+        segments: req.segments,
+      }),
+    })
+    return r
+  }
+
+  async streamGenerate(req: StreamGenerateRequest): Promise<GenerateResult> {
+    const res = await fetch(`${this.url}/stream`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        modelPath: this._modelPath,
-        loraPaths: this._loraPaths,
-        stateSlot: this._currentSlot,
-        prompt,
-        ...opts,
+        sessionId: req.sessionId,
+        prompt: req.prompt,
+        opts: req.opts,
+        blend: req.blend,
+        segments: req.segments,
       }),
     })
-    console.error(`[HTTP-CLIENT] response status: ${res.status}, has body: ${!!res.body}`)
     if (!res.ok || !res.body) throw new Error(`stream: ${res.status}`)
     const reader = res.body.getReader()
     const dec = new TextDecoder()
     let buf = ""
     let out = ""
-    let eventCount = 0
+    let lastResult: GenerateResult | null = null
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
-      const chunk = dec.decode(value, { stream: true })
-      console.error(`[HTTP-CLIENT] received chunk: ${chunk.length} chars`)
-      buf += chunk
+      buf += dec.decode(value, { stream: true })
       const events = buf.split("\n\n")
       buf = events.pop() ?? ""
       for (const ev of events) {
-        eventCount++
         const line = ev.split("\n").find((l) => l.startsWith("data:"))
         if (!line) continue
         const data = line.slice(5).trim()
-        console.error(`[HTTP-CLIENT] event ${eventCount}: ${data.slice(0, 100)}`)
         try {
-          const msg = JSON.parse(data) as { type: string; text?: string; error?: string }
+          const msg = JSON.parse(data) as { type: string; text?: string; sessionId?: string; stopReason?: GenerateResult["stopReason"] }
           if (msg.type === "token" && msg.text) {
             out += msg.text
-            callbacks?.onText?.(msg.text)
-          } else if (msg.type === "done") {
-            callbacks?.onDone?.()
+            req.onToken?.(msg.text)
+          } else if (msg.type === "done" && msg.sessionId) {
+            lastResult = { sessionId: msg.sessionId, text: out, stopReason: msg.stopReason ?? "stop" }
           } else if (msg.type === "error") {
-            throw new Error(msg.error ?? "stream error")
+            throw new Error((msg as unknown as { error: string }).error ?? "stream error")
           }
-        } catch { /* skip */ }
+        } catch (e) {
+          if (e instanceof Error && e.message !== "stream error") continue
+          throw e
+        }
       }
     }
-    callbacks?.onDone?.()
-    return out
+    return lastResult ?? { sessionId: req.sessionId, text: out, stopReason: "stop" }
+  }
+
+  async interrupt(sessionId: string): Promise<{ stopReason: "Interrupted" }> {
+    const r = await jsonReq<{ stopReason: "Interrupted" }>(`${this.url}/interrupt`, {
+      method: "POST",
+      body: JSON.stringify({ sessionId }),
+    })
+    return r
   }
 
   async evaluate(text: string): Promise<void> {
@@ -139,17 +151,6 @@ export class HttpModel implements Model {
   }
 
   getStateSize(): number { return 0 }
-
-  async generateWithBlend(prompt: string, blend?: MoseBlendWeights, opts?: Record<string, unknown>): Promise<string> {
-    if (blend && Object.keys(blend).length > 0) {
-      void blend
-    }
-    return this.generate(prompt, opts)
-  }
-
-  async generateWithSegments(_segments: { text: string; blend: MoseBlendWeights }[], opts?: Record<string, unknown>): Promise<string> {
-    return this.generate(_segments[_segments.length - 1].text, opts)
-  }
 
   get mose(): MoSEHandle {
     return {
