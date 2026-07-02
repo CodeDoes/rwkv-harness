@@ -1,14 +1,20 @@
 import { createRequire } from "node:module"
 import { DEFAULT_GEN_OPTS, type GenerateCallbacks, type Model, type MoSEHandle, type LoRAHandle, type MoseBlendWeights } from "../types.ts"
-import type { MoSEEngine, LoRAManager } from "./mose.ts"
+import { MoSEEngine, LoRAManager } from "./mose.ts"
 
 const _require = createRequire(import.meta.url)
 
 interface RwSessionInstance {
-  init(modelPath: string, vocabPath: string, quantLayers: number): Promise<void>
+  init(modelPath: string, vocabPath?: string, quantLayers?: number): Promise<void>
   tokenize(text: string): number[]
   detokenize(tokens: number[]): string
-  infer(tokens: number[], maxTokens: number): Promise<string>
+  infer(tokens: number[], maxTokens?: number, temperature?: number, topP?: number): Promise<string>
+  getStateSize(): number
+  saveState(path: string): Promise<void>
+  loadState(path: string): Promise<void>
+  evaluate(text: string): Promise<void>
+  setGrammar(grammar: string): void
+  clearGrammar(): void
 }
 
 interface RwSessionConstructor {
@@ -17,11 +23,6 @@ interface RwSessionConstructor {
 
 interface StateInfo {
   filePath: string
-  fileSize: number
-}
-
-interface SystemPromptState {
-  baselinePath: string
   fileSize: number
 }
 
@@ -43,6 +44,7 @@ export class NativeRwkvModel implements Model {
   private modelPath: string
   private stateDir: string
   private systemPrompt: string = ""
+  private baselinePrologue: string = ""
 
   mose!: MoSEHandle & MoSEEngine
   loraMgr!: LoRAHandle & LoRAManager
@@ -50,19 +52,15 @@ export class NativeRwkvModel implements Model {
   constructor(modelPath: string, stateDir: string) {
     this.modelPath = modelPath
     this.stateDir = stateDir
+    this.mose = new MoSEEngine(this as Model, stateDir)
+    this.loraMgr = new LoRAManager(this as Model)
   }
 
   async init(gpu?: string, loraPaths?: unknown): Promise<void> {
     const Ctor = loadBinding()
     this.binding = new Ctor()
-    const vocabPath = this.resolveVocabPath()
     if (!this.binding) throw new Error("Failed to create native session")
-    await this.binding.init(this.modelPath, vocabPath, 32)
-  }
-
-  private resolveVocabPath(): string {
-    const idx = this.modelPath.lastIndexOf("/")
-    return `${this.modelPath.slice(0, idx)}/rwkv_vocab_v20230424.json`
+    await this.binding.init(this.modelPath, undefined, 32)
   }
 
   private ensure(): RwSessionInstance {
@@ -86,29 +84,44 @@ export class NativeRwkvModel implements Model {
     return `${this.stateDir}/_system_baseline.state`
   }
 
-  async bakeSystemPrompt(systemPrompt: string): Promise<SystemPromptState> {
+  async bakeSystemPrompt(systemPrompt: string): Promise<{ baselinePath: string; fileSize: number }> {
     this.systemPrompt = systemPrompt
-    return { baselinePath: this.baselinePath(), fileSize: 0 }
+    const binding = this.ensure()
+    const path = this.baselinePath()
+    await binding.saveState(path)
+    const stat = await import("node:fs/promises").then(f => f.stat(path))
+    this.baselinePrologue = systemPrompt
+    return { baselinePath: path, fileSize: stat.size }
   }
 
   async loadBaseline(): Promise<void> {
+    const path = this.baselinePath()
+    const binding = this.ensure()
+    try {
+      await binding.loadState(path)
+    } catch {
+    }
   }
 
   async saveCheckpoint(name: string): Promise<StateInfo> {
-    return { filePath: this.statePath(name), fileSize: 0 }
+    const binding = this.ensure()
+    const path = this.statePath(name)
+    await binding.saveState(path)
+    const stat = await import("node:fs/promises").then(f => f.stat(path))
+    return { filePath: path, fileSize: stat.size }
   }
 
   async loadCheckpoint(name: string): Promise<void> {
+    const binding = this.ensure()
+    await binding.loadState(this.statePath(name))
   }
 
   getStateSize(): number {
-    return 0
+    return this.ensure().getStateSize()
   }
 
   async evaluate(text: string): Promise<void> {
-    const tokens = this.ensure().tokenize(text)
-    if (tokens.length === 0) return
-    await this.ensure().infer(tokens, 0)
+    await this.ensure().evaluate(text)
   }
 
   async generate(
@@ -125,17 +138,22 @@ export class NativeRwkvModel implements Model {
     callbacks: GenerateCallbacks = {},
     opts: Record<string, unknown> = {}
   ): Promise<string> {
-    const model = this.ensure()
+    const binding = this.ensure()
+
+    await this.loadBaseline()
 
     const maxTokens = (opts.maxTokens as number) ?? DEFAULT_GEN_OPTS.maxTokens
+    const temperature = (opts.temperature as number) ?? DEFAULT_GEN_OPTS.temperature
+    const topP = (opts.topP as number) ?? DEFAULT_GEN_OPTS.topP
     const stopSequences = (opts.stopSequences as string[]) ?? []
 
-    const fullPrompt = this.systemPrompt
-      ? `${this.systemPrompt}\n\n${prompt}`
-      : prompt
+    const grammar = opts.grammar as string | undefined
+    if (grammar) {
+      binding.setGrammar(grammar)
+    }
 
-    const tokens = model.tokenize(fullPrompt)
-    const result = await model.infer(tokens, maxTokens)
+    const tokens = binding.tokenize(prompt)
+    const result = await binding.infer(tokens, maxTokens, temperature, topP)
     let text = result
 
     if (stopSequences.length > 0) {

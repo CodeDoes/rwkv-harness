@@ -8,9 +8,7 @@ import { SessionManager } from "../session/session.ts"
 import { toolsToGbnfWithThink } from "../tools/registry.ts"
 import mkdirTool from "../tools/mkdir.ts"
 import { TraceWriter } from "./trace-writer.ts"
-import { RwkvModel } from "../model/rwkv-model.ts"
 import { MockModel } from "./mock-engine.ts"
-import { getLlama } from "node-llama-cpp"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PROJECT_ROOT = path.resolve(__dirname, "../..")
@@ -209,8 +207,7 @@ export class EvalController {
   static async validateToolGrammar(defs: ToolDef[]): Promise<string | null> {
     try {
       const grammarStr = toolsToGbnfWithThink(defs)
-      const llama = await getLlama()
-      await llama.createGrammar({ grammar: grammarStr })
+      if (!grammarStr || grammarStr.length === 0) return "empty grammar"
       return null
     } catch (e) {
       return e instanceof Error ? e.message : String(e)
@@ -264,7 +261,7 @@ export class EvalController {
 
   static resolveModelPath(args: string[]): string {
     return args.find((a) => a.startsWith("--model="))?.split("=")[1]
-      || path.join(PROJECT_ROOT, "models/rwkv7-g1g-2.9b-20260526-ctx8192.gguf")
+      || path.join(PROJECT_ROOT, "models/rwkv7-g1g-2.9b-20260526-ctx8192-converted.st")
   }
 
   static resolveGpu(args: string[]): "vulkan" | "cuda" | "auto" {

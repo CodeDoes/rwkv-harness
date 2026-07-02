@@ -2,10 +2,8 @@
 import { promises as fsp } from "fs"
 import * as path from "path"
 import { fileURLToPath } from "url"
-import { RwkvModel } from "./model/rwkv-model.ts"
 import { NativeRwkvModel } from "./model/native-rwkv-model.ts"
 import { HttpModel } from "./model/http-model.ts"
-import { AxumModel } from "./model/axum-model.ts"
 import type { Model } from "./types.ts"
 import { SessionManager } from "./session/session.ts"
 import { StorytellerAgent } from "./agents/storyteller/index.ts"
@@ -24,15 +22,15 @@ const WEBAPP_DIR = path.join(PROJECT_ROOT, "src", "web")
 
 const args = process.argv.slice(2)
 const command = args[0]
-const useNative = args.includes("--native")
+const noGateway = args.includes("--no-gateway")
+const gatewayAutoPort = 3030
 const modelPath = args.find((a) => a.startsWith("--model="))?.split("=")[1]
-  || path.join(PROJECT_ROOT, useNative ? "models/rwkv7-g1g-2.9b-20260526-ctx8192-converted.st" : "models/rwkv7-g1g-2.9b-20260526-ctx8192.gguf")
+  || path.join(PROJECT_ROOT, "models/rwkv7-g1g-2.9b-20260526-ctx8192-converted.st")
 const story = args.find((a) => a.startsWith("--story="))?.split("=")[1] || "default"
 const gpuArg = (args.find((a) => a.startsWith("--gpu="))?.split("=")[1] || "vulkan") as "vulkan" | "cuda" | "auto"
 const loraRaw = args.find((a) => a.startsWith("--lora="))?.split("=")[1]
 const loraPaths = loraRaw ? loraRaw.split(",").map((p) => p.startsWith("/") ? p : path.join(PROJECT_ROOT, p)) : undefined
 const engineUrl = args.find((a) => a.startsWith("--engine-url="))?.split("=")[1]
-const axumUrl = args.find((a) => a.startsWith("--axum-url="))?.split("=")[1]
 const fixParagraphs = args.includes("--fix-paragraphs") || args.includes("-p")
 const agentDepth = parseInt(args.find((a) => a.startsWith("--depth="))?.split("=")[1] || "5", 10)
 const grammarPath = args.find((a) => a.startsWith("--grammar="))?.split("=")[1]
@@ -54,27 +52,35 @@ async function main() {
   }
 }
 
-function createModel(modelPath: string, stateDir: string): Model {
+async function tryGatewayAuto(gatewayPort: number): Promise<Model | null> {
+  try {
+    const r = await fetch(`http://127.0.0.1:${gatewayPort}/health`, { signal: AbortSignal.timeout(1500) })
+    if (r.ok) {
+      console.error(`Model: gateway (http://127.0.0.1:${gatewayPort})`)
+      return new HttpModel(`http://127.0.0.1:${gatewayPort}`)
+    }
+  } catch { /* no gateway */ }
+  return null
+}
+
+async function createModel(modelPath: string, stateDir: string): Promise<Model> {
   if (engineUrl) {
     console.error(`Model: remote (${engineUrl})`)
     return new HttpModel(engineUrl)
   }
-  if (axumUrl) {
-    console.error(`Model: axum (${axumUrl})`)
-    return new AxumModel(axumUrl)
+  if (!noGateway) {
+    const gw = await tryGatewayAuto(gatewayAutoPort)
+    if (gw) return gw
   }
-  if (useNative) {
-    console.error(`Model: native RWKV (${path.basename(modelPath)})`)
-    return new NativeRwkvModel(modelPath, stateDir)
-  }
-  return new RwkvModel(modelPath, stateDir)
+  console.error(`Model: native RWKV (${path.basename(modelPath)})`)
+  return new NativeRwkvModel(modelPath, stateDir)
 }
 
 async function runGateway() {
   const gwStateDir = path.join(SESSIONS_DIR, "_gateway")
   console.error(`RWKV Gateway | port: ${gatewayPort} | model: ${path.basename(modelPath)}`)
 
-  const model = createModel(modelPath, gwStateDir)
+  const model = await createModel(modelPath, gwStateDir)
   await model.init(gpuArg, loraPaths)
   const host = new SessionHost(model, gwStateDir)
   await host.init()
@@ -121,7 +127,7 @@ async function runTui() {
 async function runCli() {
   const session = new SessionManager(SESSIONS_DIR, story, modelPath)
   const sessionDir = session.sessionDirPath
-  const model = createModel(modelPath, sessionDir)
+  const model = await createModel(modelPath, sessionDir)
   const agent = new StorytellerAgent(model, session, { fixParagraphBreak: fixParagraphs })
 
   let cleanupAgent: () => Promise<void> = () => agent.dispose()
@@ -465,7 +471,7 @@ Commands:
   lora                 LoRA expert management (see lora --help)
 
 Options:
-  --model=PATH         Model path (.gguf file)
+  --model=PATH         Model path (.st safetensors file)
   --story=NAME         Story slug
   --gpu=TYPE           GPU backend: vulkan | cuda | auto
   --lora=PATH          LoRA adapter(s)
@@ -474,6 +480,7 @@ Options:
   --port=N             Gateway port (default: 3030)
   --host=URL           Gateway URL for --connect mode
   --connect            TUI connects to running gateway
+  --no-gateway         Force direct model load (skip gateway auto-detect)
   --fix-paragraphs, -p Continue past \\n\\n EOS boundary
 `)
       process.exit(1)

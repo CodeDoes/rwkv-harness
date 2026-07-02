@@ -1,6 +1,6 @@
 import * as readline from "readline"
 import * as path from "path"
-import { RwkvModel } from "../model/rwkv-model.ts"
+import { NativeRwkvModel } from "../model/native-rwkv-model.ts"
 import type { Model } from "../types.ts"
 import { SessionHost } from "../session/session-host.ts"
 import { GatewayServer } from "../gateway/server.ts"
@@ -46,7 +46,7 @@ export class Tui {
   private async startDirect() {
     console.error("\x1b[36mRWKV TUI (direct)\x1b[0m")
 
-    const model = new RwkvModel(this.options.modelPath, this.options.stateDir)
+    const model = new NativeRwkvModel(this.options.modelPath, this.options.stateDir)
     console.error("Loading model...")
     await model.init(this.options.gpu, this.options.loraPaths)
     console.error("Model loaded.")

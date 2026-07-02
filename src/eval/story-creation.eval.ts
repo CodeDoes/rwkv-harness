@@ -6,7 +6,7 @@ import { fileURLToPath } from "url"
 import { EvalController, type Check } from "./eval-controller.ts"
 import { loadAgent } from "../agents/agent-loader.ts"
 import type { ToolDef } from "../types.ts"
-import { RwkvModel } from "../model/rwkv-model.ts"
+import { NativeRwkvModel } from "../model/native-rwkv-model.ts"
 import { TraceWriter } from "./trace-writer.ts"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -150,7 +150,7 @@ async function runLive(baseDir: string, args: string[]): Promise<boolean> {
   console.error(`GPU: ${gpu}`)
   console.error(`Workspace: ${baseDir}`)
 
-  const model = new RwkvModel(modelPath, baseDir)
+  const model = new NativeRwkvModel(modelPath, baseDir)
   await model.init(gpu)
 
   const originalCwd = process.cwd()
@@ -158,7 +158,6 @@ async function runLive(baseDir: string, args: string[]): Promise<boolean> {
 
   const trace = new TraceWriter("live").open()
   const infoData: Record<string, string> = { model: path.basename(modelPath), gpu, workspace: baseDir }
-  if (model.loraAdapters?.length) infoData.lora = model.loraAdapters.map(a => a.filePath).join(", ")
   infoData.mose = "none"
   trace.infoAbout("run", infoData)
 

@@ -1178,7 +1178,9 @@ dependencies = [
  "napi",
  "napi-build",
  "napi-derive",
+ "rand",
  "safetensors",
+ "schoolmarm",
  "serde",
  "serde_json",
  "tokio",
@@ -1203,6 +1205,12 @@ dependencies = [
  "serde",
  "serde_json",
 ]
+
+[[package]]
+name = "schoolmarm"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75c1d51691dc86d15a2ea10ae5ae490bd06cb44ad2f89f4a338dd070e9cdf39c"
 
 [[package]]
 name = "scopeguard"

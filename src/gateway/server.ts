@@ -105,6 +105,80 @@ export class GatewayServer {
       }
     })
 
+    // ---- v1-compat endpoints (HttpModel protocol) ----
+
+    this.app.post("/v1/generate", async (req, res) => {
+      try {
+        const { prompt, ...genOpts } = req.body
+        if (!prompt) { res.status(400).json({ error: "prompt required" }); return }
+        const result = await this.host._model.generate(prompt, genOpts)
+        res.json({ text: result })
+      } catch (err: any) {
+        res.status(500).json({ error: err.message })
+      }
+    })
+
+    this.app.post("/v1/stream", async (req, res) => {
+      try {
+        const { prompt, ...genOpts } = req.body
+        if (!prompt) { res.status(400).json({ error: "prompt required" }); return }
+
+        res.writeHead(200, {
+          "content-type": "text/event-stream",
+          "cache-control": "no-cache",
+          connection: "keep-alive",
+        })
+
+        let fullResult = ""
+        const result = await this.host._model.generateStream(prompt, {
+          onText: (t) => {
+            fullResult += t
+            res.write(`data: ${JSON.stringify({ type: "token", text: t })}\n\n`)
+          },
+          onDone: () => {
+            res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`)
+            res.end()
+          },
+        }, genOpts)
+      } catch (err: any) {
+        res.write(`data: ${JSON.stringify({ type: "error", error: err.message })}\n\n`)
+        res.end()
+      }
+    })
+
+    this.app.post("/v1/evaluate", async (req, res) => {
+      try {
+        const { text } = req.body
+        if (!text) { res.status(400).json({ error: "text required" }); return }
+        await this.host._model.evaluate(text)
+        res.json({ status: "ok" })
+      } catch (err: any) {
+        res.status(500).json({ error: err.message })
+      }
+    })
+
+    this.app.post("/v1/state/save", async (req, res) => {
+      try {
+        const { slotName } = req.body
+        if (!slotName) { res.status(400).json({ error: "slotName required" }); return }
+        const result = await this.host._model.saveCheckpoint(slotName)
+        res.json({ path: result.filePath, size: result.fileSize })
+      } catch (err: any) {
+        res.status(500).json({ error: err.message })
+      }
+    })
+
+    this.app.post("/v1/state/load", async (req, res) => {
+      try {
+        const { slotName } = req.body
+        if (!slotName) { res.status(400).json({ error: "slotName required" }); return }
+        await this.host._model.loadCheckpoint(slotName)
+        res.json({ status: "ok" })
+      } catch (err: any) {
+        res.status(500).json({ error: err.message })
+      }
+    })
+
     // ---- MoSE endpoints ----
 
     const mose = () => this.host._model.mose
