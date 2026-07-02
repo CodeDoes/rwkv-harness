@@ -5,8 +5,9 @@ import * as os from "os"
 import { fileURLToPath } from "url"
 import { EvalController, type Check } from "./eval-controller.ts"
 import { loadAgent } from "../agents/agent-loader.ts"
-import type { ToolDef } from "../types.ts"
+import type { ToolDef, Model } from "../types.ts"
 import { NativeRwkvModel } from "../model/native-rwkv-model.ts"
+import { HttpModel } from "../model/http-model.ts"
 import { TraceWriter } from "./trace-writer.ts"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -15,7 +16,7 @@ const PROJECT_ROOT = path.resolve(__dirname, "../..")
 const USER_INPUT = "Create a story about dragons with 3 first chapters and an up-to-date wiki."
 
 function makeToolCall(name: string, args: Record<string, unknown>): string {
-  return `<tool_call>\n${JSON.stringify({ name, args })}\n</tool_call>\n`
+  return `<tool_call>\n${JSON.stringify({ name, arguments: args })}\n</tool_call>\n`
 }
 
 // ── Oracle content ──
@@ -43,21 +44,21 @@ async function runOracle(baseDir: string): Promise<boolean> {
   }
 
   const mockResponses = [
-    think("User wants a dragon story. Envoy delegates to storyteller.") + `I'll delegate this to the storyteller.\n` + makeToolCall("spawn_agent", { agent: "storyteller", task: jobTask, workspace: storyPath }),
-    think("Check existing workspace contents before creating anything.") + `Let me check what exists first.\n` + makeToolCall("ls", { path: "workspace" }),
-    think("No story dir yet. Create it.") + `Setting up story directory.\n` + makeToolCall("mkdir", { path: "workspace/dragons" }),
-    think("Start with the plan file.") + `Writing plan.\n` + makeToolCall("write", { path: "workspace/dragons/_plan.md", content: PLAN_CONTENT }),
-    think("Write chapter 1 with character introduction and dialogue.") + `Chapter 1.\n` + makeToolCall("write", { path: "workspace/dragons/chapter-001.md", content: CH1_CONTENT }),
-    think("Write chapter 2 building on the bond between characters.") + `Chapter 2.\n` + makeToolCall("write", { path: "workspace/dragons/chapter-002.md", content: CH2_CONTENT }),
-    think("Write chapter 3 with the climax and resolution.") + `Chapter 3.\n` + makeToolCall("write", { path: "workspace/dragons/chapter-003.md", content: CH3_CONTENT }),
-    think("Now create wiki directories and populate them.") + `Wiki character dir.\n` + makeToolCall("mkdir", { path: "workspace/dragons/wiki/character" }),
+    think("User wants a dragon story. Envoy delegates to storyteller.") + `I'll delegate this to the storyteller.` + makeToolCall("spawn_agent", { agent: "storyteller", task: jobTask, workspace: storyPath }),
+    think("Check existing workspace contents before creating anything.") + `Let me check what exists first.` + makeToolCall("ls", { path: "workspace" }),
+    think("No story dir yet. Create it.") + `Setting up story directory.` + makeToolCall("mkdir", { path: "workspace/dragons" }),
+    think("Start with the plan file.") + `Writing plan.` + makeToolCall("write", { path: "workspace/dragons/_plan.md", content: PLAN_CONTENT }),
+    think("Write chapter 1 with character introduction and dialogue.") + `Chapter 1.` + makeToolCall("write", { path: "workspace/dragons/chapter-001.md", content: CH1_CONTENT }),
+    think("Write chapter 2 building on the bond between characters.") + `Chapter 2.` + makeToolCall("write", { path: "workspace/dragons/chapter-002.md", content: CH2_CONTENT }),
+    think("Write chapter 3 with the climax and resolution.") + `Chapter 3.` + makeToolCall("write", { path: "workspace/dragons/chapter-003.md", content: CH3_CONTENT }),
+    think("Now create wiki directories and populate them.") + `Wiki character dir.` + makeToolCall("mkdir", { path: "workspace/dragons/wiki/character" }),
     makeToolCall("write", { path: "workspace/dragons/wiki/character/eryndor.md", content: WIKI_ERYNDOR }),
     makeToolCall("mkdir", { path: "workspace/dragons/wiki/location" }),
     makeToolCall("write", { path: "workspace/dragons/wiki/location/dragon-peak.md", content: WIKI_DRAGON_PEAK }),
     makeToolCall("mkdir", { path: "workspace/dragons/wiki/faction" }),
     makeToolCall("write", { path: "workspace/dragons/wiki/faction/emerald-claw.md", content: WIKI_EMERALD_CLAW }),
-    `Done! All chapters and wiki entries created.\n\nUser:`,
-    `Created _plan.md, chapter-001.md, chapter-002.md, chapter-003.md, wiki/character/eryndor.md, wiki/location/dragon-peak.md, wiki/faction/emerald-claw.md\n\nUser:`,
+    `Done! All chapters and wiki entries created.\n\n`,
+    `Created _plan.md, chapter-001.md, chapter-002.md, chapter-003.md, wiki/character/eryndor.md, wiki/location/dragon-peak.md, wiki/faction/emerald-claw.md\n\n`,
   ]
 
   const model = EvalController.createMockModel(mockResponses)
@@ -140,6 +141,17 @@ async function runOracle(baseDir: string): Promise<boolean> {
 
 // ── Live mode ──
 
+async function tryConnectGateway(port = 3030): Promise<Model | null> {
+  try {
+    const r = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(1500) })
+    if (r.ok) {
+      console.error(`Gateway running on :${port}, connecting...`)
+      return new HttpModel(`http://127.0.0.1:${port}`)
+    }
+  } catch { }
+  return null
+}
+
 async function runLive(baseDir: string, args: string[]): Promise<boolean> {
   console.error("── Live mode (envoy → storyteller) ──")
 
@@ -150,8 +162,12 @@ async function runLive(baseDir: string, args: string[]): Promise<boolean> {
   console.error(`GPU: ${gpu}`)
   console.error(`Workspace: ${baseDir}`)
 
-  const model = new NativeRwkvModel(modelPath, baseDir)
-  await model.init(gpu)
+  let model: Model | null = await tryConnectGateway()
+  if (!model) {
+    console.error("No gateway found, loading model directly...")
+    model = new NativeRwkvModel(modelPath, baseDir)
+    await model.init(gpu)
+  }
 
   const originalCwd = process.cwd()
   process.chdir(baseDir)
@@ -179,20 +195,28 @@ async function runLive(baseDir: string, args: string[]): Promise<boolean> {
 
   const storyDir = result.storyDir ? path.join(baseDir, "workspace", result.storyDir) : null
   const checks: Check[] = [
+    // Agent delegation
+    { name: "envoy spawned agent", pass: result.subToolCalls >= 1 },
+    { name: "envoy tool call format valid", pass: EvalController.validateToolCallFormat(result.finalText, envoy.toolDefs).length === 0 },
+    // Workspace setup
     { name: "workspace dir exists", pass: fs.existsSync(baseDir) },
     { name: "story dir found", pass: result.storyDir !== null },
+    // Planning
     { name: "plan file exists (_plan.md)", pass: storyDir !== null && fs.existsSync(path.join(storyDir, "_plan.md")) },
+    // Chapter summaries (optional — created before chapters)
+    { name: "chapter summary files exist", pass: storyDir !== null && fs.existsSync(path.join(storyDir, "summary-ch1.md")) },
+    // Chapters
     { name: "at least 1 chapter", pass: controller.countChapterFiles(storyDir) >= 1 },
     { name: "at least 3 chapters", pass: controller.countChapterFiles(storyDir) >= 3 },
+    // Wiki
     { name: "wiki character dir", pass: storyDir !== null && fs.existsSync(path.join(storyDir, "wiki", "character")) },
     { name: ">=1 character entry", pass: controller.countFilesInDir(storyDir, "wiki", "character") >= 1 },
     { name: "wiki location dir", pass: storyDir !== null && fs.existsSync(path.join(storyDir, "wiki", "location")) },
     { name: ">=1 location entry", pass: controller.countFilesInDir(storyDir, "wiki", "location") >= 1 },
     { name: "wiki faction dir", pass: storyDir !== null && fs.existsSync(path.join(storyDir, "wiki", "faction")) },
     { name: ">=1 faction entry", pass: controller.countFilesInDir(storyDir, "wiki", "faction") >= 1 },
-    { name: "envoy spawned agent", pass: result.subToolCalls >= 1 },
+    // Tool usage
     { name: "at least 1 tool call", pass: result.subToolCalls > 0 },
-    { name: "envoy tool call format valid", pass: EvalController.validateToolCallFormat(result.finalText, envoy.toolDefs).length === 0 },
     { name: "storyteller tool call format valid", pass: EvalController.validateToolCallFormat(result.storytellerOutput, storyteller.toolDefs).length === 0 },
   ]
 

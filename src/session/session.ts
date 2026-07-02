@@ -144,14 +144,14 @@ export class SessionManager {
 
   buildPrompt(systemPrompt: string, useRoles = false): string {
     const msgs = this.session.messages
-    let prompt = systemPrompt + "\n\n"
+    let prompt = systemPrompt.replace(/[ \t]+(\n|$)/g, "$1") + "\n\n"
     for (const m of msgs) {
       switch (m.role) {
         case "user":
-          prompt += `${useRoles ? "User: " : ""}${m.content}\n\n`
+          prompt += `${useRoles ? "User: " : ""}${m.content.replace(/[ \t]+(\n|$)/g, "$1")}\n\n`
           break
         case "assistant":
-          prompt += `${useRoles ? "Assistant: " : ""}${m.content}\n\n`
+          prompt += `${useRoles ? "Assistant: " : ""}${m.content.replace(/[ \t]+(\n|$)/g, "$1")}\n\n`
           break
         case "tool":
           prompt += `[Tool result: ${m.content.slice(0, 200)}]\n\n`

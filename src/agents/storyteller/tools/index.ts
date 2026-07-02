@@ -13,7 +13,7 @@ import todoTool from "./todo.ts"
 const schemas = {
   mkdir: z.object({ path: z.string().describe("Directory path") }),
   todo: z.object({
-    action: z.enum(["check", "list"]).describe("Action: check or list"),
+    action: z.enum(["check", "list"]).optional().describe("Action: check or list (defaults to list)"),
     item: z.string().optional().describe("Task text to mark done"),
   }),
   read: z.object({ path: z.string().describe("File path") }),
@@ -38,7 +38,7 @@ export const toolDefs: ToolDef[] = [
     name: "todo",
     description: "Check off or list tasks. Shows progress and NEXT step. Auto-creates default checklist on first use.",
     parameters: [
-      { name: "action", type: "string", description: "Action: check or list", required: true, enum: ["check", "list"] },
+      { name: "action", type: "string", description: "Action: check or list (defaults to list)", required: false, enum: ["check", "list"] },
       { name: "item", type: "string", description: "Task text to mark done (for 'check' action). Leave empty to see list.", required: false },
     ],
     schema: schemas.todo,

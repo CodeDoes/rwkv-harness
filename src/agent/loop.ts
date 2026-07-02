@@ -4,14 +4,20 @@ import { GenerateOpts, DEFAULT_GEN_OPTS, GenerateCallbacks, ToolCall, ToolResult
 import { toolDefs as defaultToolDefs, toolHandlers as defaultHandlers, toolsToXml, toolsToGbnfWithThink } from "../tools/registry.ts"
 
 const DEFAULT_SYSTEM_PREAMBLE = `You can use tools to read and write files. When you need to use a tool, output:
-
 <tool_call>
-{"name": "tool_name", "args": { ... }}
+{"name": "tool_name", "arguments": { ... }}
 </tool_call>
-
 Then I'll run the tool and give you the result.`
 
-const DEFAULT_EXAMPLES = `\n\nExamples:\n\nUser: list files in /tmp\n\nAssistant: <tool_call>\n{\"name\": \"ls\", \"args\": {\"path\": \"/tmp\"}}\n</tool_call>\n\nUser: <tool_result>\n{\"name\":\"ls\",\"result\":{\"success\":true,\"data\":[\"file1.txt\",\"file2.txt\"]}}\n</tool_result>\n\nAssistant: Here are the files in /tmp: file1.txt, file2.txt.\n\nUser: read file.txt\n\nAssistant: <tool_call>\n{\"name\": \"read\", \"args\": {\"path\": \"file.txt\"}}\n</tool_call>\n\nUser: <tool_result>\n{\"name\":\"read\",\"result\":{\"success\":true,\"data\":\"file contents here\"}}\n</tool_result>\n\nAssistant: The file contains: file contents here.`
+const DEFAULT_EXAMPLES = `User: list files in /tmp
+Assistant: <think>Let me list the directory.</think>|<tool_call>{"name":"ls","arguments":{"path":"/tmp"}}</tool_call>
+User: <tool_response>{"name":"ls","result":{"success":true,"data":["file1.txt","file2.txt"]}}</tool_response>
+Assistant: Here are the files in /tmp: file1.txt and file2.txt.
+
+User: read file.txt
+Assistant: <think>I need to read the file.</think>|<tool_call>{"name":"read","arguments":{"path":"file.txt"}}</tool_call>
+User: <tool_response>{"name":"read","result":{"success":true,"data":"file contents here"}}</tool_response>
+Assistant: The file contains: file contents here.`
 
 const TOOL_CALL_RE = /<tool_call>\s*(\{[\s\S]*?\})\s*<\/tool_call>/g
 
@@ -62,7 +68,7 @@ export function formatToolResult(result: ToolResult): string {
     : { name: result.name, result: { success: false, error: result.error } }
   const body = JSON.stringify(payload)
   const truncated = body.length > 2000 ? body.slice(0, 2000) + "..." : body
-  return `<tool_result>\n${truncated}\n</tool_result>`
+  return `<tool_response>\n${truncated}\n</tool_response>`
 }
 
 export class AgentLoop {
@@ -94,7 +100,8 @@ export class AgentLoop {
     sess.status = "active"
 
     const history = this.session.buildPrompt(this.buildSystemPrompt(), true)
-    let fullPrompt = history + "User: " + userInput + "\n\nAssistant:"
+    const thinkSuffix = userInput.includes("(think") ? "" : " (think a little)"
+    let fullPrompt = (history + "User: " + userInput + thinkSuffix + "\n\nAssistant:").replace(/[ \t]+(\n|$)/g, "$1")
     let finalText = ""
     let depth = 0
 
@@ -102,13 +109,13 @@ export class AgentLoop {
       const rawRaw = await this.model.generate(fullPrompt, {
         ...DEFAULT_GEN_OPTS,
         temperature: 0.7,
-        stopSequences: ["</tool_call>", "\n\nUser:", "\x03"],
+        stopSequences: ["</tool_call>", "\n\n", "\x03"],
         grammar: toolsToGbnfWithThink(this.config.toolDefs),
         ...opts,
       })
 
       const endedWithToolCall = rawRaw.endsWith("</tool_call>")
-      const endedWithUser = !endedWithToolCall && (rawRaw.includes("\n\nUser:") || rawRaw.endsWith("\x03"))
+      const endedWithUser = !endedWithToolCall && (rawRaw.endsWith("\n\n") || rawRaw.endsWith("\x03"))
       const raw = rawRaw.replace(/\x03/g, "")
       callbacks?.onRawOutput?.(raw)
 
@@ -171,8 +178,9 @@ export class AgentLoop {
         const json = fixToolCallJson(match[1])
         const parsed = JSON.parse(json)
         if (!parsed.name || typeof parsed.name !== "string") throw new Error("missing name")
-        if (!parsed.args || typeof parsed.args !== "object" || Array.isArray(parsed.args)) throw new Error("missing args object")
-        toolCalls.push({ name: parsed.name, args: parsed.args })
+        const args = parsed.arguments ?? parsed.args
+        if (!args || typeof args !== "object" || Array.isArray(args)) throw new Error("missing arguments object")
+        toolCalls.push({ name: parsed.name, args })
       } catch {
         errors.push({ name: "__parse_error__", args: { raw: match[0] } })
       }

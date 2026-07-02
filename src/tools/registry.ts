@@ -125,7 +125,7 @@ function gbnfToolCallSection(defs: ToolDef[]): { lines: string[]; callNames: str
     const params = t.parameters.map((p) =>
       `"\\"${p.name}\\"" ws ":" ws ${paramGbnfRule(p)}`
     ).join(` ws "," ws `)
-    lines.push(`${safe}args ::= "\\"args\\"" ws ":" ws "{" ws ${params} ws "}"`)
+    lines.push(`${safe}args ::= "\\"arguments\\"" ws ":" ws "{" ws ${params} ws "}"`)
     lines.push(`${cn} ::= "<tool_call>" ws "{" ws ${safe}name ws "," ws ${safe}args ws "}" ws "</tool_call>"`)
   }
   return { lines, callNames }
@@ -134,7 +134,7 @@ function gbnfToolCallSection(defs: ToolDef[]): { lines: string[]; callNames: str
 function gbnfRoot(defs: ToolDef[], rootRule: string): string {
   const shared = [
     'think-block ::= "<think>" ([^<] | "<" [^/])* "</think>"',
-    'text ::= [^<\n]+',
+    'text ::= [^<]+',
     'ws ::= [ \\t\\n]*',
   ]
   const { lines, callNames } = gbnfToolCallSection(defs)

@@ -234,8 +234,9 @@ export class EvalController {
       if (!validNames.has(parsed.name as string)) {
         errors.push(`invalid tool name "${parsed.name}", valid: ${[...validNames].join(", ")}`)
       }
-      if (!parsed.args || typeof parsed.args !== "object" || Array.isArray(parsed.args)) {
-        errors.push(`tool_call "${parsed.name}" missing "args" object`)
+      const args = parsed.arguments ?? parsed.args
+      if (!args || typeof args !== "object" || Array.isArray(args)) {
+        errors.push(`tool_call "${parsed.name}" missing "arguments"/"args" object`)
       }
     }
     return errors
