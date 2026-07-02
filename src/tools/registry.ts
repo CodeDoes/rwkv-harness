@@ -134,7 +134,7 @@ function gbnfToolCallSection(defs: ToolDef[]): { lines: string[]; callNames: str
 function gbnfRoot(defs: ToolDef[], rootRule: string): string {
   const shared = [
     'think-block ::= "<think>" ([^<] | "<" [^/])* "</think>"',
-    'text ::= [^<]+',
+    'text ::= [^<\n]+',
     'ws ::= [ \\t\\n]*',
   ]
   const { lines, callNames } = gbnfToolCallSection(defs)
@@ -151,7 +151,7 @@ export function toolsToGbnf(defs?: ToolDef[]): string {
 }
 
 export function toolsToGbnfWithThink(defs?: ToolDef[]): string {
-  return gbnfRoot(defs ?? toolDefs, "root ::= (think-block? ws)? text? ws call")
+  return gbnfRoot(defs ?? toolDefs, "root ::= (think-block? ws)? text? ws call?")
 }
 
 export function toolsToGbnfText(defs?: ToolDef[]): string {

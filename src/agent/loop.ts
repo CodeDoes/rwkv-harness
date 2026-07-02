@@ -102,10 +102,13 @@ export class AgentLoop {
       const rawRaw = await this.model.generate(fullPrompt, {
         ...DEFAULT_GEN_OPTS,
         temperature: 0.7,
-        stopSequences: ["</tool_call>", "\x03"],
+        stopSequences: ["</tool_call>", "\n\nUser:", "\x03"],
         grammar: toolsToGbnfWithThink(this.config.toolDefs),
         ...opts,
       })
+
+      const endedWithToolCall = rawRaw.endsWith("</tool_call>")
+      const endedWithUser = !endedWithToolCall && (rawRaw.includes("\n\nUser:") || rawRaw.endsWith("\x03"))
       const raw = rawRaw.replace(/\x03/g, "")
       callbacks?.onRawOutput?.(raw)
 
@@ -114,7 +117,14 @@ export class AgentLoop {
       finalText += text
 
       const allCalls = [...toolCalls, ...errors]
-      if (allCalls.length === 0) break
+      if (allCalls.length === 0) {
+        if (endedWithUser) {
+          // Model signaled end of turn — wait for user input
+          break
+        }
+        // Hit maxTokens without tool call or user handoff — still return what we have
+        break
+      }
 
       let resultsBlock = ""
       for (const call of allCalls) {

@@ -2,6 +2,8 @@ import { createRequire } from "node:module"
 import { DEFAULT_GEN_OPTS, type GenerateCallbacks, type Model, type MoSEHandle, type LoRAHandle, type MoseBlendWeights } from "../types.ts"
 import { MoSEEngine, LoRAManager } from "./mose.ts"
 
+const GENERATE_TIMEOUT = 120_000
+
 const _require = createRequire(import.meta.url)
 
 interface RwSessionInstance {
@@ -156,12 +158,19 @@ export class NativeRwkvModel implements Model {
 
     const tokens = binding.tokenize(prompt)
 
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`generate timed out after ${GENERATE_TIMEOUT}ms`)), GENERATE_TIMEOUT)
+    )
+
     if (callbacks.onText) {
       let text = ""
-      const result = await binding.inferStream(tokens, (token: string) => {
-        text += token
-        callbacks.onText!(token)
-      }, maxTokens, temperature, topP)
+      const result = await Promise.race([
+        binding.inferStream(tokens, (token: string) => {
+          text += token
+          callbacks.onText!(token)
+        }, maxTokens, temperature, topP),
+        timeout,
+      ]) as string
 
       let finalText = result
       if (stopSequences.length > 0) {
@@ -177,7 +186,10 @@ export class NativeRwkvModel implements Model {
       callbacks.onDone?.()
       return finalText
     } else {
-      const result = await binding.infer(tokens, maxTokens, temperature, topP)
+      const result = await Promise.race([
+        binding.infer(tokens, maxTokens, temperature, topP),
+        timeout,
+      ]) as string
       let text = result
 
       if (stopSequences.length > 0) {

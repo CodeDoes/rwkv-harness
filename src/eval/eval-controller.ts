@@ -122,7 +122,7 @@ export class EvalController {
               process.stdout.write(t)
               storytellerOutput += t
             },
-          }, { maxTokens: 1024, temperature: 0.5 })
+          }, { temperature: 0.5 })
 
           this.traceWriter.infoSection("summarization")
           const summaryPrompt = `\n\nUser: List the files you created.\n\nAssistant: I created files at`

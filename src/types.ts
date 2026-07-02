@@ -53,7 +53,7 @@ export interface GenerateCallbacks {
 }
 
 export const DEFAULT_GEN_OPTS: GenerateOpts = {
-  maxTokens: 1024,
+  maxTokens: 500,
   temperature: 0.8,
   topP: 0.9,
   repeatPenalty: 1.1,

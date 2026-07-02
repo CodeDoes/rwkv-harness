@@ -56,8 +56,8 @@ async function runOracle(baseDir: string): Promise<boolean> {
     makeToolCall("write", { path: "workspace/dragons/wiki/location/dragon-peak.md", content: WIKI_DRAGON_PEAK }),
     makeToolCall("mkdir", { path: "workspace/dragons/wiki/faction" }),
     makeToolCall("write", { path: "workspace/dragons/wiki/faction/emerald-claw.md", content: WIKI_EMERALD_CLAW }),
-    `Done! All chapters and wiki entries created.`,
-    `Created _plan.md, chapter-001.md, chapter-002.md, chapter-003.md, wiki/character/eryndor.md, wiki/location/dragon-peak.md, wiki/faction/emerald-claw.md`,
+    `Done! All chapters and wiki entries created.\n\nUser:`,
+    `Created _plan.md, chapter-001.md, chapter-002.md, chapter-003.md, wiki/character/eryndor.md, wiki/location/dragon-peak.md, wiki/faction/emerald-claw.md\n\nUser:`,
   ]
 
   const model = EvalController.createMockModel(mockResponses)
