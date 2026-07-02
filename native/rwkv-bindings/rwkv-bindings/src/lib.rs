@@ -1,28 +1,51 @@
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
+use safetensors;
+
 use web_rwkv::{
-    context::{Context, ContextBuilder},
-    tokenizer::Tokenizer,
+    context::{ContextBuilder, InstanceExt},
     runtime::{
-        loader::Loader,
         infer::{Rnn, RnnInput, RnnInputBatch, RnnOption},
-        v7, Runtime, TokioRuntime,
+        loader::Loader,
+        model::{ContextAutoLimits, ModelBuilder, ModelVersion, Quant},
+        v7, TokioRuntime,
     },
     tokenizer::Tokenizer,
+    wgpu,
 };
-use std::sync::{Arc, Mutex};
-use tokio::sync::mpsc;
+use half::f16;
+
+fn argmax(slice: &[f32]) -> u32 {
+    slice.iter()
+        .enumerate()
+        .max_by(|(_, a), (_, b)| a.total_cmp(b))
+        .map(|(i, _)| i as u32)
+        .unwrap_or(0)
+}
 
 #[napi]
 pub struct RWSession {
-    runtime: Option<Box<dyn Runtime<Rnn>>>,
-    tokenizer: Arc<Tokenizer>,
+    runtime: Option<TokioRuntime<Rnn>>,
+    tokenizer: Option<Tokenizer>,
 }
 
 #[napi]
 impl RWSession {
     #[napi(constructor)]
-    pub fn new(model_path: String, vocab_path: Option<String>) -> Result<Self> {
+    pub fn new() -> Result<Self> {
+        Ok(Self {
+            runtime: None,
+            tokenizer: None,
+        })
+    }
+
+    #[napi]
+    pub async unsafe fn init(
+        &mut self,
+        model_path: String,
+        vocab_path: Option<String>,
+        quant_layers: Option<u32>,
+    ) -> Result<()> {
         let model_path = std::path::Path::new(&model_path);
         let vocab_path = vocab_path.unwrap_or_else(|| {
             let mut p = model_path.parent().unwrap().to_path_buf();
@@ -30,141 +53,125 @@ impl RWSession {
             p.to_string_lossy().to_string()
         });
 
-        // Load tokenizer
-        let tokenizer = Arc::new(Tokenizer::new(vocab_path)
-            .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?);
-
-        // We'll initialize runtime on first use (lazy init)
-        Ok(Self {
-            runtime: None,
-            tokenizer,
-        })
-    }
-
-    #[napi]
-    pub fn init_runtime(&mut self, model_path: String) -> Result<()> {
-        let model_path = std::path::Path::new(&model_path);
-        
-        // Load model file
-        let data = std::fs::read(model_path)
+        let vocab_content = std::fs::read_to_string(&vocab_path)
+            .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to read vocab: {}", e)))?;
+        let tokenizer = Tokenizer::new(&vocab_content)
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
-        
+
+        let file = std::fs::File::open(model_path)
+            .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
+        let data = unsafe { memmap2::Mmap::map(&file) }
+            .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
         let model = safetensors::SafeTensors::deserialize(&data)
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
-        
         let info = Loader::info(&model)
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
 
-        // Create context (GPU)
         let instance = wgpu::Instance::default();
         let adapter = instance
             .adapter(wgpu::PowerPreference::HighPerformance)
             .await
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
-        
         let context = ContextBuilder::new(adapter)
             .auto_limits(&info)
             .build()
             .await
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
 
-        // Build model + runtime
-        let builder = web_rwkv::runtime::loader::ModelBuilder::new(&context, model);
-        
-        let runtime: Box<dyn Runtime<web_rwkv::runtime::infer::Rnn>> = match info.version {
-            web_rwkv::runtime::model::ModelVersion::V7 => {
-                let model = web_rwkv::runtime::v7::ModelBuilder::new(&context, info.clone())
+        let quant = (0..quant_layers.unwrap_or(0) as usize)
+            .map(|layer| (layer, Quant::Int8))
+            .collect();
+        let builder = ModelBuilder::new(&context, model).quant(quant);
+
+        let runtime = match info.version {
+            ModelVersion::V7 => {
+                let model = builder
                     .build_v7()
                     .await
                     .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
-                let bundle = web_rwkv::runtime::v7::Bundle::<half::f16>::new(model, 1);
-                Box::new(TokioRuntime::<web_rwkv::runtime::infer::Rnn>::new(bundle).await)
+                let bundle = v7::Bundle::<f16>::new(model, 1);
+                TokioRuntime::<Rnn>::new(bundle).await
             }
             _ => return Err(Error::new(Status::GenericFailure, "Only RWKV v7 supported")),
         };
 
         self.runtime = Some(runtime);
+        self.tokenizer = Some(tokenizer);
         Ok(())
     }
 
     #[napi]
     pub fn tokenize(&self, text: String) -> Result<Vec<u32>> {
-        let tokens = self.tokenizer.encode(text.as_bytes())
-            .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
-        Ok(tokens)
+        let tokenizer = self
+            .tokenizer
+            .as_ref()
+            .ok_or_else(|| Error::new(Status::GenericFailure, "Tokenizer not initialized"))?;
+        tokenizer
+            .encode(text.as_bytes())
+            .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
     }
 
     #[napi]
     pub fn detokenize(&self, tokens: Vec<u32>) -> Result<String> {
-        let bytes = self.tokenizer.decode(&tokens)
+        let tokenizer = self
+            .tokenizer
+            .as_ref()
+            .ok_or_else(|| Error::new(Status::GenericFailure, "Tokenizer not initialized"))?;
+        let bytes = tokenizer
+            .decode(&tokens)
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
         String::from_utf8(bytes)
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
     }
 
     #[napi]
-    pub async fn infer(&self, tokens: Vec<u32>, max_tokens: Option<u32>) -> Result<String> {
-        let runtime = self.runtime.as_ref()
+    pub async fn infer(
+        &self,
+        tokens: Vec<u32>,
+        max_tokens: Option<u32>,
+    ) -> Result<String> {
+        let runtime = self
+            .runtime
+            .as_ref()
             .ok_or_else(|| Error::new(Status::GenericFailure, "Runtime not initialized"))?;
+        let tokenizer = self
+            .tokenizer
+            .as_ref()
+            .ok_or_else(|| Error::new(Status::GenericFailure, "Tokenizer not initialized"))?;
 
         let max_tokens = max_tokens.unwrap_or(256) as usize;
         let mut output = String::new();
-        let mut current_tokens = tokens;
 
-        let mut prompt = web_rwkv::runtime::infer::RnnInputBatch::new(
-            current_tokens, 
-            web_rwkv::runtime::infer::RnnOption::Last
-        );
-        let mut prompt = web_rwkv::runtime::infer::RnnInput::new(vec![prompt], 128);
+        let prompt = RnnInputBatch::new(tokens, RnnOption::Last);
+        let mut prompt = RnnInput::new(vec![prompt], 128);
 
         for _ in 0..max_tokens {
             let input = prompt.clone();
-            let (new_prompt, output) = runtime.infer(input).await
+            let (input, result) = runtime
+                .infer(input)
+                .await
                 .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
-            prompt = new_prompt;
+            prompt = input;
 
-            let output = output[0].0.clone();
-            if output.size() > 0 {
-                let probs = web_rwkv::runtime::softmax::softmax_one(&self.context, output).await
+            let logits = result[0].0.clone();
+            if logits.size() > 0 {
+                let probs = logits.to_vec();
+                let token = argmax(&probs);
+
+                if token == 0 {
+                    break;
+                }
+
+                let decoded = tokenizer
+                    .decode(&[token])
                     .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
-                let probs = probs.to_vec();
-                let token = probs.iter()
-                    .enumerate()
-                    .max_by(|(_, x), (_, y)| x.total_cmp(y))
-                    .unwrap()
-                    .0 as u32;
+                let word = String::from_utf8_lossy(&decoded).to_string();
+                output.push_str(&word);
 
-                if token == 0 { break; }
-
-                let decoded = self.detokenize(vec![token])?;
-                output.push_str(&decoded);
-                
                 prompt.batches[0].push(token);
-            } else {
-                // prefill
             }
         }
 
         Ok(output)
     }
-
-    #[napi]
-    pub fn tokenize(&self, text: String) -> Result<Vec<u32>> {
-        let tokens = self.tokenizer.encode(text.as_bytes())
-            .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
-        Ok(tokens)
-    }
-
-    #[napi]
-    pub fn detokenize(&self, tokens: Vec<u32>) -> Result<String> {
-        let bytes = self.tokenizer.decode(&tokens)
-            .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
-        String::from_utf8(bytes)
-            .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
-    }
-}
-
-#[napi]
-pub fn create_session(model_path: String, vocab_path: Option<String>) -> Result<RWSession> {
-    RWSession::new(model_path, vocab_path)
 }

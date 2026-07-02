@@ -8,12 +8,15 @@ name = "rwkv_bindings"
 crate-type = ["cdylib"]
 
 [dependencies]
-napi = { version = "2", features = ["tokio"] }
+napi = { version = "2", features = ["async", "tokio_rt", "napi4", "napi6"] }
+safetensors = "0.6"
 napi-derive = "2"
 web-rwkv = { path = "/tmp/web-rwkv" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+half = "2"
+memmap2 = "0.9.11"
 
 [build-dependencies]
 napi-build = "2"

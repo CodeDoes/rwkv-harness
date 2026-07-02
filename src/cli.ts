@@ -3,6 +3,7 @@ import { promises as fsp } from "fs"
 import * as path from "path"
 import { fileURLToPath } from "url"
 import { RwkvModel } from "./model/rwkv-model.ts"
+import { NativeRwkvModel } from "./model/native-rwkv-model.ts"
 import { HttpModel } from "./model/http-model.ts"
 import { AxumModel } from "./model/axum-model.ts"
 import type { Model } from "./types.ts"
@@ -23,14 +24,15 @@ const WEBAPP_DIR = path.join(PROJECT_ROOT, "src", "web")
 
 const args = process.argv.slice(2)
 const command = args[0]
+const useNative = args.includes("--native")
 const modelPath = args.find((a) => a.startsWith("--model="))?.split("=")[1]
-  || path.join(PROJECT_ROOT, "models/rwkv7-g1g-2.9b-20260526-ctx8192.gguf")
+  || path.join(PROJECT_ROOT, useNative ? "models/rwkv7-g1g-2.9b-20260526-ctx8192-converted.st" : "models/rwkv7-g1g-2.9b-20260526-ctx8192.gguf")
 const story = args.find((a) => a.startsWith("--story="))?.split("=")[1] || "default"
 const gpuArg = (args.find((a) => a.startsWith("--gpu="))?.split("=")[1] || "vulkan") as "vulkan" | "cuda" | "auto"
 const loraRaw = args.find((a) => a.startsWith("--lora="))?.split("=")[1]
 const loraPaths = loraRaw ? loraRaw.split(",").map((p) => p.startsWith("/") ? p : path.join(PROJECT_ROOT, p)) : undefined
 const engineUrl = args.find((a) => a.startsWith("--engine-url="))?.split("=")[1]
-const axumUrl = args.find((a) => a.startsWith("--axum-url="))?.split("=")[1] || "ws://127.0.0.1:5678/ws"
+const axumUrl = args.find((a) => a.startsWith("--axum-url="))?.split("=")[1]
 const fixParagraphs = args.includes("--fix-paragraphs") || args.includes("-p")
 const agentDepth = parseInt(args.find((a) => a.startsWith("--depth="))?.split("=")[1] || "5", 10)
 const grammarPath = args.find((a) => a.startsWith("--grammar="))?.split("=")[1]
@@ -60,6 +62,10 @@ function createModel(modelPath: string, stateDir: string): Model {
   if (axumUrl) {
     console.error(`Model: axum (${axumUrl})`)
     return new AxumModel(axumUrl)
+  }
+  if (useNative) {
+    console.error(`Model: native RWKV (${path.basename(modelPath)})`)
+    return new NativeRwkvModel(modelPath, stateDir)
   }
   return new RwkvModel(modelPath, stateDir)
 }
