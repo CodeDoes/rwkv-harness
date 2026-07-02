@@ -6,6 +6,10 @@ import { SessionManager } from "../session/session.ts"
 import { GenerateOpts, DEFAULT_GEN_OPTS, GenerateCallbacks, ToolCall, ToolResult, ToolDef, ToolHandler } from "../types.ts"
 import { toolDefs as defaultToolDefs, toolHandlers as defaultHandlers, toolsToXml, toolsToGbnfWithThink } from "../tools/registry.ts"
 
+function clean(txt: string): string {
+  return txt.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim()
+}
+
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const AGENTS_DIR = resolve(__dirname, "../agents")
 
@@ -65,7 +69,7 @@ export interface AgentLoopConfig {
 
 export function formatToolResult(result: ToolResult): string {
   const payload = result.success && !result.error
-    ? { name: result.name, result: { success: true, data: result.data ?? null } }
+    ? { name: result.name, result: result.data ?? { success: true } }
     : { name: result.name, result: { success: false, error: result.error } }
   const body = JSON.stringify(payload)
   const truncated = body.length > 2000 ? body.slice(0, 2000) + "..." : body
@@ -102,7 +106,7 @@ export class AgentLoop {
 
     const history = this.session.buildPrompt(this.buildSystemPrompt(), true)
     const thinkSuffix = userInput.includes("(think") ? "" : " (think a little)"
-    let fullPrompt = (history + "User: " + userInput + thinkSuffix + "\n\nAssistant:").replace(/[ \t]+(\n|$)/g, "$1")
+    let fullPrompt = clean(history + "User: " + userInput + thinkSuffix + "\n\nAssistant:")
     let finalText = ""
     let depth = 0
 
@@ -162,7 +166,7 @@ export class AgentLoop {
       ).join(", ")
       return `- ${t.name}(${params}) — ${t.description}`
     }).join("\n")
-    return this.config.examples + "\n\nSystem: " + this.config.systemPrompt + "\n\nTools:\n" + tools
+    return clean(this.config.examples + "\n\nSystem: " + this.config.systemPrompt + "\n\nTools:\n" + tools)
   }
 
   parseToolCalls(text: string): {

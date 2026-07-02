@@ -1,0 +1,146 @@
+User: Write a story with 3 chapters and a wiki. Write files to workspace/prophecy
+
+Assistant:
+<think>Create the story directory.
+</think>
+<tool_call>
+{"name":"mkdir","arguments":{"path":"workspace/prophecy"}}
+</tool_call>
+
+User:
+<tool_response>
+{"name":"mkdir","result":{"success":true}}
+</tool_response>
+
+Assistant:
+<think>Write the outline.
+</think>
+<tool_call>
+{"name":"write","arguments":{"path":"workspace/prophecy/_plan.md","content":"# Outline\n\nChapter 1: Mira discovers the Starfall Temple.\nChapter 2: Mira deciphers the prophecy with Orin.\nChapter 3: Mira chooses transformation.\n\nWiki:\n- Mira (character)\n- Starfall Temple (location)\n- Order of the Sky (faction)\n"}}
+</tool_call>
+
+User:
+<tool_response>
+{"name":"write","result":{"success":true}}
+</tool_response>
+
+Assistant:
+<think>Write chapter 1.
+</think>
+<tool_call>
+{"name":"write","arguments":{"path":"workspace/prophecy/chapter-001.md","content":"# Chapter 1\n\nMira found the temple. The walls glowed with ancient carvings. She read the prophecy aloud: when the sky weeps fire, the chosen must choose. Her hands trembled.\n"}}
+</tool_call>
+
+User:
+<tool_response>
+{"name":"write","result":{"success":true}}
+</tool_response>
+
+Assistant:
+<think>Write the character wiki entry for Mira, who appears in chapter 1.
+</think>
+<tool_call>
+{"name":"mkdir","arguments":{"path":"workspace/prophecy/wiki/character"}}
+</tool_call>
+
+User:
+<tool_response>
+{"name":"mkdir","result":{"success":true}}
+</tool_response>
+
+Assistant:
+<tool_call>
+{"name":"write","arguments":{"path":"workspace/prophecy/wiki/character/mira.md","content":"# Mira\n\nA scholar who discovered the Starfall Prophecy. Brave and curious.\n"}}
+</tool_call>
+
+User:
+<tool_response>
+{"name":"write","result":{"success":true}}
+</tool_response>
+
+Assistant:
+<think>Write the location wiki entry for the temple from chapter 1.
+</think>
+<tool_call>
+{"name":"mkdir","arguments":{"path":"workspace/prophecy/wiki/location"}}
+</tool_call>
+
+User:
+<tool_response>
+{"name":"mkdir","result":{"success":true}}
+</tool_response>
+
+Assistant:
+<tool_call>
+{"name":"write","arguments":{"path":"workspace/prophecy/wiki/location/starfall-temple.md","content":"# Starfall Temple\n\nA hidden ravine temple with prophecies carved on every wall.\n"}}
+</tool_call>
+
+User:
+<tool_response>
+{"name":"write","result":{"success":true}}
+</tool_response>
+
+Assistant:
+<think>Re-read the outline before writing chapter 2.
+</think>
+<tool_call>
+{"name":"read","arguments":{"path":"workspace/prophecy/_plan.md"}}
+</tool_call>
+
+User:
+<tool_response>
+{"name":"read","result":{"success":true,"data":"# Outline\n\nChapter 1: Mira discovers the Starfall Temple.\nChapter 2: Mira deciphers the prophecy with Orin.\nChapter 3: Mira chooses transformation.\n\nWiki:\n- Mira (character)\n- Starfall Temple (location)\n- Order of the Sky (faction)\n"}}
+</tool_response>
+
+Assistant:
+<think>Write chapter 2.
+</think>
+<tool_call>
+{"name":"write","arguments":{"path":"workspace/prophecy/chapter-002.md","content":"# Chapter 2\n\nMira met Orin, the temple guardian. Together they deciphered the prophecy. A star would fall in three nights, they said. The kingdom would burn.\n"}}
+</tool_call>
+
+User:
+<tool_response>
+{"name":"write","result":{"success":true}}
+</tool_response>
+
+Assistant:
+<think>Re-read the outline before writing chapter 3.
+</think>
+<tool_call>
+{"name":"read","arguments":{"path":"workspace/prophecy/_plan.md"}}
+</tool_call>
+
+User:
+<tool_response>
+{"name":"read","result":{"success":true,"data":"# Outline\n\nChapter 1: Mira discovers the Starfall Temple.\nChapter 2: Mira deciphers the prophecy with Orin.\nChapter 3: Mira chooses transformation.\n\nWiki:\n- Mira (character)\n- Starfall Temple (location)\n- Order of the Sky (faction)\n"}}
+</tool_response>
+
+Assistant:
+<think>Write chapter 3.
+</think>
+<tool_call>
+{"name":"write","arguments":{"path":"workspace/prophecy/chapter-003.md","content":"# Chapter 3\n\nMira stood on the altar. The sky burned crimson. She chose transformation over sacrifice and became something new. A new constellation appeared.\n"}}
+</tool_call>
+
+User:
+<tool_response>
+{"name":"write","result":{"success":true}}
+</tool_response>
+
+Assistant:
+<think>Write the faction wiki entry.
+</think>
+<tool_call>
+{"name":"mkdir","arguments":{"path":"workspace/prophecy/wiki/faction"}}
+</tool_call>
+
+User:
+<tool_response>
+{"name":"mkdir","result":{"success":true}}
+</tool_response>
+
+Assistant:
+<tool_call>
+{"name":"write","arguments":{"path":"workspace/prophecy/wiki/faction/order-of-the-sky.md","content":"# Order of the Sky\n\nScholarly order dedicated to studying stars and prophecies.\n"}}
+</tool_call>

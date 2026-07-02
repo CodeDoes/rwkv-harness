@@ -42,13 +42,6 @@ export class EvalController {
 
   get trace(): TraceWriter { return this.traceWriter }
 
-  async bakeAgent(agent: LoadedAgent): Promise<void> {
-    if (!agent.examples) return
-    await this.model.loadCheckpoint("_clean")
-    await this.model.evaluate(agent.examples)
-    await this.model.saveCheckpoint(`fewshot-${agent.name}`)
-  }
-
   async runAgentHierarchy(cfg: {
     envoy: LoadedAgent
     storyteller: LoadedAgent
@@ -59,10 +52,6 @@ export class EvalController {
     let storytellerOutput = ""
     const { envoy, storyteller, userInput, onSpawnResult } = cfg
 
-    await this.model.saveCheckpoint("_clean")
-    if (envoy.examples) await this.bakeAgent(envoy)
-    if (envoy.examples) await this.model.loadCheckpoint("fewshot-envoy")
-
     this.traceWriter.inputBlock(envoy.instructions + "\n\nUser: " + userInput + "\n\nAssistant:")
     this.traceWriter.outputBlock()
 
@@ -71,23 +60,24 @@ export class EvalController {
 
     const agentLoop = new AgentLoop(this.model, session, 1, {
       systemPrompt: envoy.instructions,
-      examples: "",
+      examples: envoy.examples,
       toolDefs: envoy.toolDefs,
       toolHandlers: {
         ...envoy.toolHandlers,
         spawn_agent: async (args) => {
           const agentName = args.agent as string
-          const workspacePath = `workspace/${agentName}-${Date.now().toString(36)}`
+          let workspacePath = (args.workspace as string) || ""
+          workspacePath = workspacePath.replace(/^\//, "").replace(/^workspace\//, "")
+          if (!workspacePath) workspacePath = `${agentName}-${Date.now().toString(36)}`
+          workspacePath = `workspace/${workspacePath}`
           await mkdirTool({ path: workspacePath })
-          const task = `${userInput} Write files to ${workspacePath}`
+          const task = (args.task as string) || `${userInput} Write files to ${workspacePath}`
           this.traceWriter.infoSection("spawn_agent: storyteller")
           this.traceWriter.infoAbout("task", { description: task })
           this.traceWriter.infoAbout("workspace", { path: workspacePath })
           console.error(`\nENVOY spawned "${agentName}"`)
 
           await this.model.saveCheckpoint("envoy-pause")
-          if (storyteller.examples) await this.bakeAgent(storyteller)
-          if (storyteller.examples) await this.model.loadCheckpoint("fewshot-storyteller")
 
           const storySession = new SessionManager(
             session.sessionDirPath,
@@ -98,7 +88,7 @@ export class EvalController {
 
           const subLoop = new AgentLoop(this.model, storySession, 15, {
             systemPrompt: storyteller.instructions,
-            examples: "",
+            examples: storyteller.examples,
             toolDefs: storyteller.toolDefs,
             toolHandlers: storyteller.toolHandlers,
             onToolCall: (name, toolArgs) => {

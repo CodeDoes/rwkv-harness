@@ -1,7 +1,7 @@
 import * as fs from "fs"
 import * as path from "path"
 import { fileURLToPath } from "url"
-import type { ToolDef, ToolHandler, Model } from "../types.ts"
+import type { ToolDef, ToolHandler } from "../types.ts"
 import { loadExamples } from "./examples.ts"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -13,7 +13,6 @@ export interface LoadedAgent {
   toolHandlers: Record<string, ToolHandler>
   instructions: string
   examples: string
-  bakeExamples(model: Model): Promise<void>
 }
 
 export async function loadAgent(agentName: string): Promise<LoadedAgent> {
@@ -38,11 +37,5 @@ export async function loadAgent(agentName: string): Promise<LoadedAgent> {
     toolHandlers,
     instructions,
     examples,
-    async bakeExamples(this: LoadedAgent, model: Model): Promise<void> {
-      if (!this.examples) return
-      await model.loadCheckpoint("_clean")
-      await model.evaluate(this.examples)
-      await model.saveCheckpoint(`fewshot-${this.name}`)
-    },
   }
 }

@@ -8,14 +8,8 @@ import findTool from "../../../tools/find.ts"
 import mkdirTool from "../../../tools/mkdir.ts"
 import storyAnalyze from "./story-analyze.ts"
 import storyValidate from "./story-validate.ts"
-import todoTool from "./todo.ts"
-
 const schemas = {
   mkdir: z.object({ path: z.string().describe("Directory path") }),
-  todo: z.object({
-    action: z.enum(["check", "list"]).optional().describe("Action: check or list (defaults to list)"),
-    item: z.string().optional().describe("Task text to mark done"),
-  }),
   read: z.object({ path: z.string().describe("File path") }),
   write: z.object({ path: z.string().describe("File path"), content: z.string().describe("File content") }),
   ls: z.object({ path: z.string().describe("Directory path") }),
@@ -33,15 +27,6 @@ export const toolDefs: ToolDef[] = [
       { name: "path", type: "string", description: "Directory path", required: true },
     ],
     schema: schemas.mkdir,
-  },
-  {
-    name: "todo",
-    description: "Check off or list tasks. Shows progress and NEXT step. Auto-creates default checklist on first use.",
-    parameters: [
-      { name: "action", type: "string", description: "Action: check or list (defaults to list)", required: false, enum: ["check", "list"] },
-      { name: "item", type: "string", description: "Task text to mark done (for 'check' action). Leave empty to see list.", required: false },
-    ],
-    schema: schemas.todo,
   },
   {
     name: "read",
@@ -107,7 +92,6 @@ export const toolDefs: ToolDef[] = [
 
 export const toolHandlers: Record<string, ToolHandler> = {
   mkdir: (args) => mkdirTool({ path: args.path as string }),
-  todo: (args) => todoTool({ action: args.action as string, item: args.item as string | undefined }),
   read: (args) => file_read({ path: args.path as string }),
   write: (args) => file_write({ path: args.path as string, content: args.content as string }),
   ls: (args) => lsTool({ path: args.path as string }),

@@ -200,8 +200,6 @@ async function runLive(baseDir: string, args: string[]): Promise<boolean> {
     { name: "story dir found", pass: result.storyDir !== null },
     // Planning
     { name: "plan file exists (_plan.md)", pass: storyDir !== null && fs.existsSync(path.join(storyDir, "_plan.md")) },
-    // Chapter summaries (optional — created before chapters)
-    { name: "chapter summary files exist", pass: storyDir !== null && fs.existsSync(path.join(storyDir, "summary-ch1.md")) },
     // Chapters
     { name: "at least 1 chapter", pass: controller.countChapterFiles(storyDir) >= 1 },
     { name: "at least 3 chapters", pass: controller.countChapterFiles(storyDir) >= 3 },

@@ -1,0 +1,144 @@
+User: Write a story with 3 chapters and a wiki. Write files to workspace/shadow-realm
+
+Assistant:
+<think>Create the directory.
+</think>
+<tool_call>
+{"name":"mkdir","arguments":{"path":"workspace/shadow-realm"}}
+</tool_call>
+
+User:
+<tool_response>
+{"name":"mkdir","result":{"success":true}}
+</tool_response>
+
+Assistant:
+<think>Write the outline.
+</think>
+<tool_call>
+{"name":"write","arguments":{"path":"workspace/shadow-realm/_plan.md","content":"# Outline\n\nChapter 1: Lyra finds the Shadow Gate.\nChapter 2: Lyra meets the Warden.\nChapter 3: Lyra seals the gate.\n\nWiki:\n- Lyra (character)\n- Shadow Gate (location)\n- Wardens (faction)\n"}}
+</tool_call>
+
+User:
+<tool_response>
+{"name":"write","result":{"success":true}}
+</tool_response>
+
+Assistant:
+<think>Write chapter 1.
+</think>
+<tool_call>
+{"name":"write","arguments":{"path":"workspace/shadow-realm/chapter-001.md","content":"# Chapter 1\n\nLyra found the gate between worlds in the forest clearing. It shimmered like black glass. She reached out and touched it. Her hand passed through. She stepped forward and entered the Shadow Realm.\n"}}
+</tool_call>
+
+User:
+<tool_response>
+{"name":"write","result":{"success":true}}
+</tool_response>
+
+Assistant:
+<think>Write wiki entries for Lyra.
+</think>
+<tool_call>
+{"name":"mkdir","arguments":{"path":"workspace/shadow-realm/wiki/character"}}
+</tool_call>
+
+User:
+<tool_response>
+{"name":"mkdir","result":{"success":true}}
+</tool_response>
+
+Assistant:
+<tool_call>
+{"name":"write","arguments":{"path":"workspace/shadow-realm/wiki/character/lyra.md","content":"# Lyra\n\nA traveler who discovered the Shadow Gate. Brave and curious.\n"}}
+</tool_call>
+
+User:
+<tool_response>
+{"name":"write","result":{"success":true}}
+</tool_response>
+
+Assistant:
+<tool_call>
+{"name":"mkdir","arguments":{"path":"workspace/shadow-realm/wiki/location"}}
+</tool_call>
+
+User:
+<tool_response>
+{"name":"mkdir","result":{"success":true}}
+</tool_response>
+
+Assistant:
+<tool_call>
+{"name":"write","arguments":{"path":"workspace/shadow-realm/wiki/location/shadow-gate.md","content":"# Shadow Gate\n\nA dimensional portal in a forest clearing that connects to the Shadow Realm.\n"}}
+</tool_call>
+
+User:
+<tool_response>
+{"name":"write","result":{"success":true}}
+</tool_response>
+
+Assistant:
+<think>Re-read the outline before chapter 2.
+</think>
+<tool_call>
+{"name":"read","arguments":{"path":"workspace/shadow-realm/_plan.md"}}
+</tool_call>
+
+User:
+<tool_response>
+{"name":"read","result":{"success":true,"data":"# Outline\n\nChapter 1: Lyra finds the Shadow Gate.\nChapter 2: Lyra meets the Warden.\nChapter 3: Lyra seals the gate.\n\nWiki:\n- Lyra (character)\n- Shadow Gate (location)\n- Wardens (faction)\n"}}
+</tool_response>
+
+Assistant:
+<think>Write chapter 2.
+</think>
+<tool_call>
+{"name":"write","arguments":{"path":"workspace/shadow-realm/chapter-002.md","content":"# Chapter 2\n\nThe Shadow Realm was a place of eternal twilight. Strange creatures moved at the edge of vision. Lyra met a Warden who guarded the balance between light and dark.\n"}}
+</tool_call>
+
+User:
+<tool_response>
+{"name":"write","result":{"success":true}}
+</tool_response>
+
+Assistant:
+<think>Re-read the outline before chapter 3.
+</think>
+<tool_call>
+{"name":"read","arguments":{"path":"workspace/shadow-realm/_plan.md"}}
+</tool_call>
+
+User:
+<tool_response>
+{"name":"read","result":{"success":true,"data":"# Outline\n\nChapter 1: Lyra finds the Shadow Gate.\nChapter 2: Lyra meets the Warden.\nChapter 3: Lyra seals the gate.\n\nWiki:\n- Lyra (character)\n- Shadow Gate (location)\n- Wardens (faction)\n"}}
+</tool_response>
+
+Assistant:
+<think>Write chapter 3.
+</think>
+<tool_call>
+{"name":"write","arguments":{"path":"workspace/shadow-realm/chapter-003.md","content":"# Chapter 3\n\nLyra returned through the gate just as the shadows began to spill through. She sealed it with the Warden's blessing. The gate faded into the bark of an old oak tree.\n"}}
+</tool_call>
+
+User:
+<tool_response>
+{"name":"write","result":{"success":true}}
+</tool_response>
+
+Assistant:
+<think>Write the faction wiki entry.
+</think>
+<tool_call>
+{"name":"mkdir","arguments":{"path":"workspace/shadow-realm/wiki/faction"}}
+</tool_call>
+
+User:
+<tool_response>
+{"name":"mkdir","result":{"success":true}}
+</tool_response>
+
+Assistant:
+<tool_call>
+{"name":"write","arguments":{"path":"workspace/shadow-realm/wiki/faction/wardens.md","content":"# The Wardens\n\nGuardians of the boundary between light and shadow worlds.\n"}}
+</tool_call>

@@ -1,0 +1,144 @@
+User: Write a story with 3 chapters and a wiki. Write files to workspace/lost-kingdom
+
+Assistant:
+<think>Create the directory.
+</think>
+<tool_call>
+{"name":"mkdir","arguments":{"path":"workspace/lost-kingdom"}}
+</tool_call>
+
+User:
+<tool_response>
+{"name":"mkdir","result":{"success":true}}
+</tool_response>
+
+Assistant:
+<think>Write the outline.
+</think>
+<tool_call>
+{"name":"write","arguments":{"path":"workspace/lost-kingdom/_plan.md","content":"# Outline\n\nChapter 1: Kael finds the map.\nChapter 2: Kael crosses the desert.\nChapter 3: Kael discovers the Sunken City.\n\nWiki:\n- Kael (character)\n- Sunken City (location)\n- Navigators (faction)\n"}}
+</tool_call>
+
+User:
+<tool_response>
+{"name":"write","result":{"success":true}}
+</tool_response>
+
+Assistant:
+<think>Write chapter 1.
+</think>
+<tool_call>
+{"name":"write","arguments":{"path":"workspace/lost-kingdom/chapter-001.md","content":"# Chapter 1\n\nKael found the old map in his grandfather's chest. The parchment was yellowed and cracked. It showed a city beneath the sea. Kael packed his bags and set out at dawn.\n"}}
+</tool_call>
+
+User:
+<tool_response>
+{"name":"write","result":{"success":true}}
+</tool_response>
+
+Assistant:
+<think>Write wiki entries for Kael.
+</think>
+<tool_call>
+{"name":"mkdir","arguments":{"path":"workspace/lost-kingdom/wiki/character"}}
+</tool_call>
+
+User:
+<tool_response>
+{"name":"mkdir","result":{"success":true}}
+</tool_response>
+
+Assistant:
+<tool_call>
+{"name":"write","arguments":{"path":"workspace/lost-kingdom/wiki/character/kael.md","content":"# Kael\n\nAn adventurer who discovered the Sunken City. Determined and resourceful.\n"}}
+</tool_call>
+
+User:
+<tool_response>
+{"name":"write","result":{"success":true}}
+</tool_response>
+
+Assistant:
+<tool_call>
+{"name":"mkdir","arguments":{"path":"workspace/lost-kingdom/wiki/location"}}
+</tool_call>
+
+User:
+<tool_response>
+{"name":"mkdir","result":{"success":true}}
+</tool_response>
+
+Assistant:
+<tool_call>
+{"name":"write","arguments":{"path":"workspace/lost-kingdom/wiki/location/sunken-city.md","content":"# Sunken City\n\nAn ancient city beneath the sea, preserved by coral and magic.\n"}}
+</tool_call>
+
+User:
+<tool_response>
+{"name":"write","result":{"success":true}}
+</tool_response>
+
+Assistant:
+<think>Re-read the outline before chapter 2.
+</think>
+<tool_call>
+{"name":"read","arguments":{"path":"workspace/lost-kingdom/_plan.md"}}
+</tool_call>
+
+User:
+<tool_response>
+{"name":"read","result":{"success":true,"data":"# Outline\n\nChapter 1: Kael finds the map.\nChapter 2: Kael crosses the desert.\nChapter 3: Kael discovers the Sunken City.\n\nWiki:\n- Kael (character)\n- Sunken City (location)\n- Navigators (faction)\n"}}
+</tool_response>
+
+Assistant:
+<think>Write chapter 2.
+</think>
+<tool_call>
+{"name":"write","arguments":{"path":"workspace/lost-kingdom/chapter-002.md","content":"# Chapter 2\n\nThe journey took Kael across the Desert of Whispers. The sand spoke in riddles. He followed the map to the coast where an old fisherman waited.\n"}}
+</tool_call>
+
+User:
+<tool_response>
+{"name":"write","result":{"success":true}}
+</tool_response>
+
+Assistant:
+<think>Re-read the outline before chapter 3.
+</think>
+<tool_call>
+{"name":"read","arguments":{"path":"workspace/lost-kingdom/_plan.md"}}
+</tool_call>
+
+User:
+<tool_response>
+{"name":"read","result":{"success":true,"data":"# Outline\n\nChapter 1: Kael finds the map.\nChapter 2: Kael crosses the desert.\nChapter 3: Kael discovers the Sunken City.\n\nWiki:\n- Kael (character)\n- Sunken City (location)\n- Navigators (faction)\n"}}
+</tool_response>
+
+Assistant:
+<think>Write chapter 3.
+</think>
+<tool_call>
+{"name":"write","arguments":{"path":"workspace/lost-kingdom/chapter-003.md","content":"# Chapter 3\n\nKael dove into the water and found the city intact. Towers of coral rose from the seabed. The citizens had become merfolk, guardians of ancient knowledge.\n"}}
+</tool_call>
+
+User:
+<tool_response>
+{"name":"write","result":{"success":true}}
+</tool_response>
+
+Assistant:
+<think>Write the faction wiki entry.
+</think>
+<tool_call>
+{"name":"mkdir","arguments":{"path":"workspace/lost-kingdom/wiki/faction"}}
+</tool_call>
+
+User:
+<tool_response>
+{"name":"mkdir","result":{"success":true}}
+</tool_response>
+
+Assistant:
+<tool_call>
+{"name":"write","arguments":{"path":"workspace/lost-kingdom/wiki/faction/navigators.md","content":"# The Navigators\n\nAncient guild of seafarers who mapped the world's oceans.\n"}}
+</tool_call>

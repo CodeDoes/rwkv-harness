@@ -1,4 +1,6 @@
 import * as fs from "fs";
 export default function ({ path, content }: { path: string; content: string }) {
-  return fs.writeFileSync(path, content);
+  fs.writeFileSync(path, content);
+  const size = fs.statSync(path).size;
+  return { path, bytes: size, status: "written" };
 }
