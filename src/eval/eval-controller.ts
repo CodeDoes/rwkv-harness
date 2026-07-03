@@ -92,53 +92,32 @@ export class EvalController {
               const contentPreview = toolArgs.content ? ` (${String(toolArgs.content).slice(0, 60).replace(/\n/g, "\\n")}...)` : ""
               console.error(`  STORYTELLER depth: ${name}${pathStr}${contentPreview}`)
             },
-            onToolResult: (result) => {
+            // Sub-agent tool responses live in the child's session log; not in
+            // the master trace. The master trace sees only the parent (envoy)
+            // inference flow.
+            onToolResult: () => {
               toolResponseCount++
-              this.traceWriter.write("tool", JSON.stringify(result))
             },
           })
 
-          this.traceWriter.write("system", storyteller.instructions)
-          this.traceWriter.write("user", taskText)
-          let stStreamStarted = false
+          // Capture the sub-agent's last assistant block's text — that becomes
+          // the spawn_agent tool response, surfaced to the parent for its
+          // next inference turn.
+          let lastAssistantText = ""
           const subResult = await subLoop.run(taskText, {
-            onRawOutput: (raw) => {
-              if (!stStreamStarted) this.traceWriter.write("assistant", raw)
-            },
+            onRawOutput: () => {},
             onText: (t: string) => {
               storytellerOutput += t
+              lastAssistantText = t
             },
-            onToken: (t: string) => {
-              process.stdout.write(t)
-              if (!stStreamStarted) {
-                this.traceWriter.append("assistant: ")
-                stStreamStarted = true
-              }
-              this.traceWriter.append(t)
-            },
+            onToken: (t: string) => process.stdout.write(t),
           }, { temperature: 0.5, maxTokens: 2048 })
-          if (stStreamStarted) this.traceWriter.endLine()
+          if (!lastAssistantText) lastAssistantText = subResult
 
-          const summaryPrompt = `\n\nUser: Briefly report what was accomplished in the workspace.\n\nAssistant:`
-          this.traceWriter.write("user", summaryPrompt)
-          const summaryProc = await this.model.process()
-          const summaryRes = await this.model.generate({
-            sessionId: summaryProc.sessionId,
-            prompt: summaryPrompt,
-            opts: {
-              temperature: 0.3,
-              maxTokens: 100,
-              stopSequences: ["\n\n", "\x03"],
-            },
-          })
-          const report = summaryRes.text.replace(/\x03/g, "").trim()
-          this.traceWriter.write("assistant", report)
-
-          await this.model.interrupt(summaryProc.sessionId)
           await this.model.loadCheckpoint("envoy-pause")
 
           const extra = onSpawnResult ? onSpawnResult(args, subResult, storySession) : {}
-          return { summary: report, sessionId: storySession.sessionIdStr, ...extra }
+          return { summary: lastAssistantText, sessionId: storySession.sessionIdStr, ...extra }
         },
       },
       onToolCall: (name) => {
@@ -154,22 +133,17 @@ export class EvalController {
     })
 
     this.traceWriter.write("user", userInput)
-    let envoyStreamStarted = false
+    let envoyRawCaptured = false
     const finalText = await agentLoop.run(userInput, {
       onRawOutput: (raw) => {
-        if (!envoyStreamStarted) this.traceWriter.write("assistant", raw)
+        if (!envoyRawCaptured) {
+          this.traceWriter.write("assistant", raw)
+          envoyRawCaptured = true
+        }
       },
       onText: (t: string) => process.stdout.write(t),
-      onToken: (t: string) => {
-        process.stdout.write(t)
-        if (!envoyStreamStarted) {
-          this.traceWriter.append("assistant: ")
-          envoyStreamStarted = true
-        }
-        this.traceWriter.append(t)
-      },
+      onToken: (t: string) => process.stdout.write(t),
     }, { maxTokens: 500, temperature: 0.5 })
-    if (envoyStreamStarted) this.traceWriter.endLine()
 
     const storyDir = this.findStoryDir(this.baseDir)
     return {

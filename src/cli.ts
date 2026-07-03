@@ -17,7 +17,6 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const PROJECT_ROOT = path.resolve(__dirname, "..")
 const SESSIONS_DIR = path.join(PROJECT_ROOT, "sessions")
-const GRAMMARS_DIR = path.join(PROJECT_ROOT, "src", "grammars")
 const WEBAPP_DIR = path.join(PROJECT_ROOT, "src", "web")
 
 const args = process.argv.slice(2)
@@ -38,7 +37,7 @@ const gatewayPort = parseInt(args.find((a) => a.startsWith("--port="))?.split("=
 const input = args.slice(1).filter((a) => !a.startsWith("--")).join(" ")
 
 function makeGrammarPath(p: string): string {
-  return path.isAbsolute(p) ? p : path.join(GRAMMARS_DIR, p)
+  return path.isAbsolute(p) ? p : path.resolve(process.cwd(), p)
 }
 
 async function main() {

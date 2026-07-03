@@ -1,1 +1,0 @@
-root ::= ( think-block | text )? ws tool-call | ( think-block | text )? "\n\n"

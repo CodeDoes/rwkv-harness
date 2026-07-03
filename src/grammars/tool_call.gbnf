@@ -1,6 +1,0 @@
-root ::= tool-call
-tool-call ::= "<tool_call>" ws "{" ws name-property ws args-property ws "}" ws "</tool_call>"
-name-property ::= "\"name\"" ws ":" ws "\"" tool-name "\""
-args-property ::= "\"args\"" ws ":" ws "{" ws [^}]* "}"
-tool-name ::= "read" | "write" | "edit" | "ls" | "mkdir" | "grep" | "find"
-ws ::= [ \t\n]*

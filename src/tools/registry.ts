@@ -127,14 +127,14 @@ function gbnfToolCallSection(defs: ToolDef[]): { lines: string[]; callNames: str
       `"\\"${p.name}\\"" ws ":" ws ${paramGbnfRule(p)}`
     ).join(` ws "," ws `)
     lines.push(`${safe}args ::= "\\"arguments\\"" ws ":" ws "{" ws ${params} ws "}"`)
-    lines.push(    `${cn} ::= "<tool_call>" "\n" "\t" "{" ws ${safe}name ws "," ws ${safe}args ws "}" "\n" "</tool_call>"`)
+    lines.push(`${cn} ::= "\\t" "<tool_call>" "\\n" "\\t" "{" ws ${safe}name ws "," ws ${safe}args ws "}" "\\n" "\\t" "</tool_call>"`)
   }
   return { lines, callNames }
 }
 
 function gbnfRoot(defs: ToolDef[], rootRule: string): string {
   const shared = [
-    'think-block ::= "<think>" "\n" "\t" [^<]* "\n" "</think>"',
+    'think-block ::= "\\t" "<think>" "\\n" "\\t" [^<]* "\\n" "\\t" "</think>"',
     'text ::= "\t" [^<]*',
     'ws ::= [ \\t\\n]*',
   ]

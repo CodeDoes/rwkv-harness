@@ -49,11 +49,11 @@ async function traceShapeHandTest() {
 
   check("starts with meta:", text.startsWith("meta: "))
   check("contains # label: fixture", text.includes("# label: fixture"))
-  check("contains system: hi", text.includes("system: hi"))
-  check("contains user: hello", text.includes("user: hello"))
-  check("contains assistant: Sure thing!", text.includes("assistant: Sure thing!"))
-  check("contains user: again?", text.includes("user: again?"))
-  check("contains assistant: Yep.", text.includes("assistant: Yep."))
+  check("contains system: header with body \\thi", /\nsystem:\n\thi\b/.test(text))
+  check("contains user: header with body \\thello", /\nuser:\n\thello\b/.test(text))
+  check("contains assistant: header with body \\tSure thing!", /\nassistant:\n\tSure thing!/.test(text))
+  check("contains user: header with body \\tagain?", /\nuser:\n\tagain\?/.test(text))
+  check("contains assistant: header with body \\tYep.", /\nassistant:\n\tYep\./.test(text))
   check("ends with end: line", text.trimEnd().split("\n").pop()?.startsWith("end:") ?? false)
   check("no --- markers in body", countMatches(text, /^--- /gm) === 0)
   check("no '--- input ---' legacy marker", !text.includes("--- input ---"))
@@ -124,8 +124,8 @@ async function writeRoleInterleavingTest() {
   tw.close()
   const text = readTrace(tw.path)
 
-  check("user: test written", text.includes("user: test"))
-  check("assistant outputs >= 2", countMatches(text, /^assistant: /gm) >= 2)
+  check("user: header written", /\nuser:\n\ttest\b/.test(text))
+  check("assistant headers >= 2", countMatches(text, /^assistant:$/gm) >= 2)
   check("onRawOutput fired once per round (>=2)", order.length >= 2)
   check("no --- markers", countMatches(text, /^--- /gm) === 0)
 }

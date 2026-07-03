@@ -44,6 +44,35 @@ function indentContent(content: string): string {
   return content.replace(/\n/g, "\n\t")
 }
 
+/**
+ * `\n` → `\n\t` rule used by example templates and any emitter that needs to
+ * match the inference layout (e.g. trace writer, session output). Single
+ * source of truth — change here to update everywhere.
+ */
+export const applyIndentRule = (content: string): string => indentContent(content)
+
+/**
+ * Indent style controls how tags (`＜think＞`, `＜/think＞`, `＜tool_call＞`,
+ * `＜/tool_call＞`, `＜tool_response＞`, `＜/tool_response＞`) are written in
+ * the rendered prompt. Configurable so different layouts can be tried.
+ *
+ *  - "all-indented"  every line of every block is `\t`-indented; opening and
+ *                    closing tags carry the leading `\t` (`\n\t<tool_call>\n\t…\n\t</tool_call>`).
+ *  - "tags-flush"    opening/closing tags flush-left; only content between
+ *                    them is indented (`\n<tool_call>\n\t…\n</tool_call>`).
+ *                    Useful when the grammar expects flush-left tags.
+ */
+export type IndentStyle = "all-indented" | "tags-flush"
+
+const INDENT_STYLE: IndentStyle = (() => {
+  const v = process.env.INDENT_STYLE?.trim()
+  return v === "tags-flush" ? "tags-flush" : "all-indented"
+})()
+
+function tag(tag: string, style: IndentStyle = INDENT_STYLE): string {
+  return style === "all-indented" ? `\t${tag}` : tag
+}
+
 /// ── Default template ──
 
 registerTemplate("default", {
@@ -56,7 +85,9 @@ registerTemplate("default", {
         segments.push(`User: ${e.content}`)
         i++
       } else if (e.type === "tool_response") {
-        segments.push(`User:\n<tool_response>\n\t${indentContent(e.content)}\n</tool_response>`)
+        const open = tag("<tool_response>", INDENT_STYLE)
+        const close = tag("</tool_response>", INDENT_STYLE)
+        segments.push(`User:\n${open}\n\t${indentContent(e.content)}\n${close}`)
         i++
       } else {
         let assistantText = ""
@@ -65,12 +96,18 @@ registerTemplate("default", {
           const cur = entries[i]
           const sep = first ? "" : "\n"
           switch (cur.type) {
-            case "think":
-              assistantText += `${sep}<think>\n\t${indentContent(cur.content)}\n</think>`
+            case "think": {
+              const open = tag("<think>", INDENT_STYLE)
+              const close = tag("</think>", INDENT_STYLE)
+              assistantText += `${sep}${open}\n\t${indentContent(cur.content)}\n${close}`
               break
-            case "tool_call":
-              assistantText += `${sep}<tool_call>\n\t${indentContent(cur.content)}\n</tool_call>`
+            }
+            case "tool_call": {
+              const open = tag("<tool_call>", INDENT_STYLE)
+              const close = tag("</tool_call>", INDENT_STYLE)
+              assistantText += `${sep}${open}\n\t${indentContent(cur.content)}\n${close}`
               break
+            }
             case "text":
               assistantText += `${sep}\t${indentContent(cur.content)}`
               break
@@ -90,7 +127,9 @@ registerTemplate("default", {
       : { name: result.name, result: { success: false, error: result.error } }
     const body = JSON.stringify(payload)
     const truncated = body.length > 2000 ? body.slice(0, 2000) + "..." : body
-    return `<tool_response>\n\t${truncated}\n</tool_response>`
+    const open = tag("<tool_response>", INDENT_STYLE)
+    const close = tag("</tool_response>", INDENT_STYLE)
+    return `${open}\n\t${truncated}\n${close}`
   },
 
   formatUserInput(input) {

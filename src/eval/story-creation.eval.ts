@@ -49,7 +49,6 @@ const trace = new TraceWriter("oracle").open({ mode: "oracle", baseDir })
     [{ type: "think", content: "Now create wiki entries." }, { type: "text", content: "Wiki character." }, tc("write", { path: "workspace/dragons/wiki/character/eryndor.md", content: WIKI_ERYNDOR })],
     [tc("write", { path: "workspace/dragons/wiki/location/dragon-peak.md", content: WIKI_DRAGON_PEAK })],
     [tc("write", { path: "workspace/dragons/wiki/faction/emerald-claw.md", content: WIKI_EMERALD_CLAW })],
-    [{ type: "text", content: "Done! All chapters and wiki entries created." }],
     [{ type: "text", content: "Created _plan.md, chapter-001.md, chapter-002.md, chapter-003.md, wiki/character/eryndor.md, wiki/location/dragon-peak.md, wiki/faction/emerald-claw.md." }],
   ]
 
@@ -108,18 +107,22 @@ const trace = new TraceWriter("oracle").open({ mode: "oracle", baseDir })
   const stExampleErr = EvalController.validateExampleFormat(stExampleText, stToolDefs)
 
   const checks: Check[] = [
+    // Workspace
     { name: "workspace dir", pass: fs.existsSync("workspace") && fs.statSync("workspace").isDirectory() },
     { name: "story dir", pass: fs.existsSync("workspace/dragons") },
+    // Plan & chapters
     { name: "plan file", pass: fs.existsSync("workspace/dragons/_plan.md") },
     { name: "chapter 1", pass: fs.existsSync("workspace/dragons/chapter-001.md") },
     { name: "chapter 2", pass: fs.existsSync("workspace/dragons/chapter-002.md") },
     { name: "chapter 3", pass: fs.existsSync("workspace/dragons/chapter-003.md") },
+    // Wiki dirs and counts (supports multiple entries per category)
     { name: "wiki character dir", pass: fs.existsSync("workspace/dragons/wiki/character") },
-    { name: "character entry", pass: fs.existsSync("workspace/dragons/wiki/character/eryndor.md") },
+    { name: ">=1 character entry", pass: controller.countFilesInDir("workspace/dragons", "wiki", "character") >= 1 },
     { name: "wiki location dir", pass: fs.existsSync("workspace/dragons/wiki/location") },
-    { name: "location entry", pass: fs.existsSync("workspace/dragons/wiki/location/dragon-peak.md") },
+    { name: ">=1 location entry", pass: controller.countFilesInDir("workspace/dragons", "wiki", "location") >= 1 },
     { name: "wiki faction dir", pass: fs.existsSync("workspace/dragons/wiki/faction") },
-    { name: "faction entry", pass: fs.existsSync("workspace/dragons/wiki/faction/emerald-claw.md") },
+    { name: ">=1 faction entry", pass: controller.countFilesInDir("workspace/dragons", "wiki", "faction") >= 1 },
+    // Content (mock writes exact paths, so these still hold)
     { name: "plan content correct", pass: fs.readFileSync("workspace/dragons/_plan.md", "utf-8") === PLAN_CONTENT },
     { name: "ch1 content correct", pass: fs.readFileSync("workspace/dragons/chapter-001.md", "utf-8") === CH1_CONTENT },
     { name: "ch2 content correct", pass: fs.readFileSync("workspace/dragons/chapter-002.md", "utf-8") === CH2_CONTENT },
@@ -127,6 +130,7 @@ const trace = new TraceWriter("oracle").open({ mode: "oracle", baseDir })
     { name: "wiki eryndor correct", pass: fs.readFileSync("workspace/dragons/wiki/character/eryndor.md", "utf-8") === WIKI_ERYNDOR },
     { name: "wiki dragon-peak correct", pass: fs.readFileSync("workspace/dragons/wiki/location/dragon-peak.md", "utf-8") === WIKI_DRAGON_PEAK },
     { name: "wiki emerald-claw correct", pass: fs.readFileSync("workspace/dragons/wiki/faction/emerald-claw.md", "utf-8") === WIKI_EMERALD_CLAW },
+    // Agent usage
     { name: "envoy spawned agent", pass: result.subToolCalls >= 1 },
     { name: "storyteller made at least 8 tool calls", pass: result.subToolCalls >= 8 },
     { name: "all mock responses consumed", pass: model.callCount === mockResponses.length },

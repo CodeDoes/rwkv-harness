@@ -1,14 +1,17 @@
 import type { ExampleEntry } from "../example-template.ts"
 
+interface WikiEntry {
+  slug: string
+  category: string
+  content: string
+  thinkPrefix: string
+}
+
 interface StoryDefinition {
   slug: string
   refDir: string
   userPrompt: string
-  wiki: {
-    character: string
-    location: string
-    faction: string
-  }
+  wikiSegments: WikiEntry[]
 }
 
 const STORIES: StoryDefinition[] = [
@@ -16,31 +19,43 @@ const STORIES: StoryDefinition[] = [
     slug: "shadow-realm",
     refDir: "story-shadow",
     userPrompt: "@./story-shadow/_user.md",
-    wiki: { character: "mara", location: "duskfall", faction: "umbral-order" },
+    wikiSegments: [
+      { slug: "mara", category: "character", content: "@./story-shadow/wiki/character/mara.md", thinkPrefix: "Write character wiki entry." },
+      { slug: "duskfall", category: "location", content: "@./story-shadow/wiki/location/duskfall.md", thinkPrefix: "Write location wiki." },
+      { slug: "umbral-order", category: "faction", content: "@./story-shadow/wiki/faction/umbral-order.md", thinkPrefix: "Write faction wiki." },
+    ],
   },
   {
     slug: "dragon-realm",
     refDir: "story-tale",
     userPrompt: "@./story-tale/_user.md",
-    wiki: { character: "lyra", location: "dragon-peak", faction: "ashen-council" },
+    wikiSegments: [
+      { slug: "lyra", category: "character", content: "@./story-tale/wiki/character/lyra.md", thinkPrefix: "Write character wiki entry." },
+      { slug: "dragon-peak", category: "location", content: "@./story-tale/wiki/location/dragon-peak.md", thinkPrefix: "Write location wiki." },
+      { slug: "ashen-council", category: "faction", content: "@./story-tale/wiki/faction/ashen-council.md", thinkPrefix: "Write faction wiki." },
+    ],
   },
   {
     slug: "starfall",
     refDir: "story-starfall",
     userPrompt: "@./story-starfall/_user.md",
-    wiki: { character: "celeste", location: "starfall-crater", faction: "observatory-council" },
+    wikiSegments: [
+      { slug: "celeste", category: "character", content: "@./story-starfall/wiki/character/celeste.md", thinkPrefix: "Write character wiki entry." },
+      { slug: "starfall-crater", category: "location", content: "@./story-starfall/wiki/location/starfall-crater.md", thinkPrefix: "Write location wiki." },
+      { slug: "observatory-council", category: "faction", content: "@./story-starfall/wiki/faction/observatory-council.md", thinkPrefix: "Write faction wiki." },
+    ],
   },
 ]
 
 function makeExample(def: StoryDefinition): ExampleEntry[] {
-  const { slug, refDir, wiki } = def
+  const { slug, refDir, wikiSegments } = def
   const ws = `workspace/${slug}`
 
   const lsArgs = JSON.stringify({ path: ws, recursive: true })
   const writeResult = JSON.stringify({ name: "write", result: { success: true } })
   const filesEmpty = JSON.stringify({ name: "ls", result: { files: [] } })
 
-  return [
+  const entries: ExampleEntry[] = [
     { type: "user", content: def.userPrompt },
     { type: "think", content: "Check workspace, then write plan, chapters, and wiki." },
     { type: "tool_call", content: JSON.stringify({ name: "ls", arguments: { path: ws, recursive: true } }) },
@@ -57,17 +72,20 @@ function makeExample(def: StoryDefinition): ExampleEntry[] {
     { type: "think", content: "Write chapter 3." },
     { type: "tool_call", content: JSON.stringify({ name: "write", arguments: { path: `${ws}/chapter-003.md`, content: `@./${refDir}/chapter-003.md` } }) },
     { type: "tool_response", content: writeResult },
-    { type: "think", content: "Write wiki entries." },
-    { type: "tool_call", content: JSON.stringify({ name: "write", arguments: { path: `${ws}/wiki/character/${wiki.character}.md`, content: `@./${refDir}/wiki/character/${wiki.character}.md` } }) },
-    { type: "tool_response", content: writeResult },
-    { type: "think", content: "Write location wiki." },
-    { type: "tool_call", content: JSON.stringify({ name: "write", arguments: { path: `${ws}/wiki/location/${wiki.location}.md`, content: `@./${refDir}/wiki/location/${wiki.location}.md` } }) },
-    { type: "tool_response", content: writeResult },
-    { type: "think", content: "Write faction wiki." },
-    { type: "tool_call", content: JSON.stringify({ name: "write", arguments: { path: `${ws}/wiki/faction/${wiki.faction}.md`, content: `@./${refDir}/wiki/faction/${wiki.faction}.md` } }) },
-    { type: "tool_response", content: writeResult },
-    { type: "text", content: `Completed ${ws} with _plan.md, 3 chapters, and wiki (character, location, faction).` },
   ]
+
+  for (const seg of wikiSegments) {
+    entries.push({ type: "think", content: seg.thinkPrefix })
+    entries.push({
+      type: "tool_call",
+      content: JSON.stringify({ name: "write", arguments: { path: `${ws}/wiki/${seg.category}/${seg.slug}.md`, content: seg.content } }),
+    })
+    entries.push({ type: "tool_response", content: writeResult })
+  }
+
+  entries.push({ type: "text", content: `Completed ${ws} with _plan.md, 3 chapters, and wiki.` })
+
+  return entries
 }
 
 export function loadStorytellerExamples(): ExampleEntry[] {
