@@ -9,7 +9,6 @@ import { SessionManager } from "../session/session.ts"
 import { MockModel } from "./mock-engine.ts"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const TRACES_DIR = path.resolve(__dirname, "..", "eval", ".traces")
 
 let passCount = 0
 let failCount = 0
@@ -39,20 +38,22 @@ async function traceShapeHandTest() {
 
   const tw = new TraceWriter("shapetest")
   tw.open({ mode: "shapetest", label: "fixture" })
-  tw.prompt("System: hi\n\nUser: hello\n\nAssistant:")
-  tw.output("Sure thing!")
-  tw.prompt("User: again?\n\nAssistant:")
-  tw.output("Yep.")
+  tw.write("system", "hi")
+  tw.write("user", "hello")
+  tw.write("assistant", "Sure thing!")
+  tw.write("user", "again?")
+  tw.write("assistant", "Yep.")
   tw.close()
 
   const text = readTrace(tw.path)
 
   check("starts with meta:", text.startsWith("meta: "))
   check("contains # label: fixture", text.includes("# label: fixture"))
-  check("first body line is the assistant-prompt", text.includes("Assistant:\n\n") || text.includes("Assistant:"))
-  check("contains Assistant:", text.includes("Assistant:"))
-  check("contains raw output 'Sure thing!'", text.includes("Sure thing!"))
-  check("contains raw output 'Yep.'", text.includes("Yep."))
+  check("contains system: hi", text.includes("system: hi"))
+  check("contains user: hello", text.includes("user: hello"))
+  check("contains assistant: Sure thing!", text.includes("assistant: Sure thing!"))
+  check("contains user: again?", text.includes("user: again?"))
+  check("contains assistant: Yep.", text.includes("assistant: Yep."))
   check("ends with end: line", text.trimEnd().split("\n").pop()?.startsWith("end:") ?? false)
   check("no --- markers in body", countMatches(text, /^--- /gm) === 0)
   check("no '--- input ---' legacy marker", !text.includes("--- input ---"))
@@ -61,7 +62,7 @@ async function traceShapeHandTest() {
 }
 
 async function traceShapeAgentLoopTest() {
-  console.log("\n── 2. AgentLoop → TraceWriter (mirrors real eval path) ──")
+  console.log("\n── 2. AgentLoop → TraceWriter (agent-level user/assistant) ──")
 
   const tw = new TraceWriter("looptest")
   tw.open({ mode: "looptest" })
@@ -77,30 +78,23 @@ async function traceShapeAgentLoopTest() {
 
   const loop = new AgentLoop(model, session, 5)
 
+  tw.write("user", "hi there")
   await loop.run("hi there", {
-    onPrompt: (p) => tw.prompt(p),
-    onRawOutput: (r) => tw.output(r),
+    onRawOutput: (r) => tw.write("assistant", r),
     onText: () => {},
   })
 
   tw.close()
   const text = readTrace(tw.path)
 
-  const assistantHits = countMatches(text, /Assistant:$/gm)
-  check("first prompt ends with Assistant:", assistantHits >= 1)
   check("output 'Hello, friend!' present", text.includes("Hello, friend!"))
-  check("<tool_call> JSON present", text.includes('"name":"read"'))
-  check("second output 'How can I help?' present", text.includes("How can I help?"))
-
-  const prompts = countMatches(text, /\n\nAssistant:$/gm)
-  check(">= 2 prompts captured (one per round)", prompts >= 2)
-
+  check("output 'How can I help?' present", text.includes("How can I help?"))
   check("no --- markers", countMatches(text, /^--- /gm) === 0)
   check("no '<|endoftext|>' literal", !text.includes("<|endoftext|>"))
 }
 
-async function onPromptFiresBeforeGenerateTest() {
-  console.log("\n── 3. onPrompt fires before each generate() ──")
+async function writeRoleInterleavingTest() {
+  console.log("\n── 3. write() role interleaving ordering ──")
 
   const tw = new TraceWriter("ordering")
   tw.open({ mode: "ordering" })
@@ -109,8 +103,6 @@ async function onPromptFiresBeforeGenerateTest() {
   const session = new SessionManager(path.dirname(sessionDir), path.basename(sessionDir), "ord")
   await session.ensureDir()
 
-  let promptCount = 0
-  let outputCount = 0
   const order: string[] = []
 
   const model = new MockModel([
@@ -120,33 +112,29 @@ async function onPromptFiresBeforeGenerateTest() {
 
   const loop = new AgentLoop(model, session, 5)
 
+  tw.write("user", "test")
   await loop.run("test", {
-    onPrompt: () => {
-      promptCount++
-      order.push("prompt")
-      tw.prompt(`prompt-${promptCount}`)
-    },
     onRawOutput: (raw) => {
-      outputCount++
       order.push(`output(${raw.length})`)
-      tw.output(raw)
+      tw.write("assistant", raw)
     },
     onText: () => {},
   })
 
-  check("onPrompt fired once per round (>=2)", promptCount >= 2)
-  check("onRawOutput fired once per round (>=2)", outputCount >= 2)
-  check("order is interleaved: prompt, output, prompt, output...",
-    order[0] === "prompt" &&
-    order[1]?.startsWith("output(") &&
-    order[2] === "prompt")
+  tw.close()
+  const text = readTrace(tw.path)
+
+  check("user: test written", text.includes("user: test"))
+  check("assistant outputs >= 2", countMatches(text, /^assistant: /gm) >= 2)
+  check("onRawOutput fired once per round (>=2)", order.length >= 2)
+  check("no --- markers", countMatches(text, /^--- /gm) === 0)
 }
 
 async function main() {
   console.log("Trace shape tests")
   await traceShapeHandTest()
   await traceShapeAgentLoopTest()
-  await onPromptFiresBeforeGenerateTest()
+  await writeRoleInterleavingTest()
 
   console.log(`\n${passCount}/${passCount + failCount} PASS`)
   if (failCount > 0) {

@@ -55,6 +55,8 @@ export class EvalController {
     const session = new SessionManager(this.baseDir, this.sessionId, "envoy")
     await session.ensureDir()
 
+    this.traceWriter.write("system", envoy.instructions)
+
     const agentLoop = new AgentLoop(this.model, session, 1, {
       systemPrompt: envoy.instructions,
       examples: envoy.examples,
@@ -91,9 +93,10 @@ export class EvalController {
             onToolResult: () => {},
           })
 
+          this.traceWriter.write("system", storyteller.instructions)
+          this.traceWriter.write("user", taskText)
           const subResult = await subLoop.run(taskText, {
-            onPrompt: (prompt) => this.traceWriter.prompt(prompt),
-            onRawOutput: (raw) => this.traceWriter.output(raw),
+            onRawOutput: (raw) => this.traceWriter.write("assistant", raw),
             onText: (t: string) => {
               process.stdout.write(t)
               storytellerOutput += t
@@ -101,7 +104,7 @@ export class EvalController {
           }, { temperature: 0.5 })
 
           const summaryPrompt = `\n\nUser: Briefly report what was accomplished in the workspace.\n\nAssistant:`
-          this.traceWriter.prompt(summaryPrompt)
+          this.traceWriter.write("user", summaryPrompt)
           const summaryProc = await this.model.process()
           const summaryRes = await this.model.generate({
             sessionId: summaryProc.sessionId,
@@ -113,7 +116,7 @@ export class EvalController {
             },
           })
           const report = summaryRes.text.replace(/\x03/g, "").trim()
-          this.traceWriter.output(report)
+          this.traceWriter.write("assistant", report)
 
           await this.model.interrupt(summaryProc.sessionId)
           await this.model.loadCheckpoint("envoy-pause")
@@ -130,9 +133,9 @@ export class EvalController {
       },
     })
 
+    this.traceWriter.write("user", userInput)
     const finalText = await agentLoop.run(userInput, {
-      onPrompt: (prompt) => this.traceWriter.prompt(prompt),
-      onRawOutput: (raw) => this.traceWriter.output(raw),
+      onRawOutput: (raw) => this.traceWriter.write("assistant", raw),
       onText: (t: string) => process.stdout.write(t),
     }, { maxTokens: 300 })
 

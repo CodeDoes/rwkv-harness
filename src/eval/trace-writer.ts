@@ -1,10 +1,11 @@
 import * as fs from "fs"
 import * as path from "path"
 import { fileURLToPath } from "url"
-import type { ToolResult } from "../types.ts"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const TRACES_DIR = path.resolve(__dirname, "..", "eval", ".traces")
+
+export type TraceRole = "system" | "user" | "assistant" | "tool" | "state-tune" | "meta"
 
 export class TraceWriter {
   private filePath: string
@@ -26,23 +27,16 @@ export class TraceWriter {
     return this
   }
 
-  prompt(prompt: string) {
-    this.emit(prompt)
-  }
-
-  output(raw: string) {
-    if (this.fd !== null) {
-      fs.writeSync(this.fd, raw.replace(/\x03/g, "\\x03"))
+  write(role: TraceRole, content: string) {
+    if (role === "state-tune") return
+    let body = content
+    if (role === "tool") {
+      body = `<tool_response>\n${content}\n</tool_response>`
     }
-    this.emit("")
-  }
-
-  toolResult(result: ToolResult) {
-    const body = result.success && !result.error
-      ? JSON.stringify({ name: result.name, result: result.data ?? { success: true } })
-      : JSON.stringify({ name: result.name, result: { success: false, error: result.error } })
-    const truncated = body.length > 2000 ? body.slice(0, 2000) + "..." : body
-    this.emit(`<tool_response>\n${truncated}\n</tool_response>`)
+    this.emit(`${role}: ${body}`)
+    if (role === "user" || role === "assistant" || role === "system" || role === "tool") {
+      this.emit("")
+    }
   }
 
   verification(checks: { name: string; pass: boolean }[]) {

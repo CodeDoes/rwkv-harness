@@ -97,7 +97,10 @@ export class AgentLoop {
       onToolResult: config?.onToolResult ?? (() => {}),
     }
     this.sessionId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
-    this.initPromise = model.process({ systemPrompt: this.config.systemPrompt }).then(({ sessionId }) => {
+    this.initPromise = model.process({
+      systemPrompt: this.config.systemPrompt,
+      append: this.config.examples ? { role: "system", content: this.config.examples } : undefined,
+    }).then(({ sessionId }) => {
       this.sessionId = sessionId
     })
   }
@@ -180,7 +183,7 @@ export class AgentLoop {
       ).join(", ")
       return `- ${t.name}(${params}) — ${t.description}`
     }).join("\n")
-    return clean(this.config.examples + "\n\nSystem: " + this.config.systemPrompt + "\n\nTools:\n" + tools)
+    return clean("System: " + this.config.systemPrompt + "\n\nTools:\n" + tools)
   }
 
   parseToolCalls(text: string): {
