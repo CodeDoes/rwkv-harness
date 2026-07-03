@@ -188,7 +188,9 @@ export class AgentLoop {
         this.config.onToolResult?.(result)
         resultsBlock += this.formatToolResult(result) + "\n"
       }
-      fullPrompt += rawForPrompt + SEP + "User:\n" + resultsBlock.trim() + "\n\nAssistant:"
+      // Only send delta — state already has previous prompt + generated tokens baked in.
+      // Re-sending old text double-counts in the RNN state and corrupts it.
+      fullPrompt = SEP + "User:\n" + resultsBlock.trim() + "\n\nAssistant:"
       await this.session.save()
       depth++
     }

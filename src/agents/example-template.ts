@@ -61,7 +61,7 @@ registerTemplate("default", (entries) => {
         first = false
         i++
       }
-      segments.push(`Assistant: ${assistantText}`)
+      segments.push(`Assistant:\n${assistantText}`)
     }
   }
   return segments.join("\n\n")
