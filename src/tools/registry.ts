@@ -152,7 +152,8 @@ export function toolsToGbnf(defs?: ToolDef[]): string {
 }
 
 export function toolsToGbnfWithThink(defs?: ToolDef[]): string {
-  return gbnfRoot(defs ?? toolDefs, "root ::= (think-block? ws)? text? ws call?")
+  const S = "\x00"
+  return gbnfRoot(defs ?? toolDefs, `root ::= (think-block? ws)? text? ws (call ws text? ws)?`)
 }
 
 export function toolsToGbnfText(defs?: ToolDef[]): string {

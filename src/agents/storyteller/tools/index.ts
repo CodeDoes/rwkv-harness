@@ -5,13 +5,11 @@ import file_write from "../../../tools/write.ts"
 import lsTool from "../../../tools/ls.ts"
 import grepTool from "../../../tools/grep.ts"
 import findTool from "../../../tools/find.ts"
-import mkdirTool from "../../../tools/mkdir.ts"
 import storyAnalyze from "./story-analyze.ts"
 import storyValidate from "./story-validate.ts"
 const schemas = {
-  mkdir: z.object({ path: z.string().describe("Directory path") }),
   read: z.object({ path: z.string().describe("File path") }),
-  write: z.object({ path: z.string().describe("File path"), content: z.string().describe("File content") }),
+  write: z.object({ path: z.string().describe("File path. If no file extension, .md is added automatically"), content: z.string().describe("File content") }),
   ls: z.object({ path: z.string().describe("Directory path"), recursive: z.boolean().optional().describe("If true, walk subdirectories and return file paths") }),
   grep: z.object({ path: z.string().describe("Directory to search"), term: z.string().describe("Text to search for") }),
   find: z.object({ path: z.string().describe("Directory to search"), term: z.string().describe("Filename substring") }),
@@ -20,14 +18,6 @@ const schemas = {
 }
 
 export const toolDefs: ToolDef[] = [
-  {
-    name: "mkdir",
-    description: "Create directory (recursive, no error if exists).",
-    parameters: [
-      { name: "path", type: "string", description: "Directory path", required: true },
-    ],
-    schema: schemas.mkdir,
-  },
   {
     name: "read",
     description: "Read file content. Append #L:N to read lines L through N (1-indexed).",
@@ -92,7 +82,6 @@ export const toolDefs: ToolDef[] = [
 ]
 
 export const toolHandlers: Record<string, ToolHandler> = {
-  mkdir: (args) => mkdirTool({ path: args.path as string }),
   read: (args) => file_read({ path: args.path as string }),
   write: (args) => file_write({ path: args.path as string, content: args.content as string }),
   ls: (args) => lsTool({ path: args.path as string, recursive: args.recursive as boolean | undefined }),

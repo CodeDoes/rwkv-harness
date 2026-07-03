@@ -10,7 +10,7 @@ crate-type = ["cdylib"]
 [dependencies]
 napi = { version = "2", features = ["async", "tokio_rt", "napi4", "napi6"] }
 napi-derive = "2"
-web-rwkv = { path = "/tmp/web-rwkv" }
+web-rwkv = { path = "/home/kit/extern/web-rwkv" }
 safetensors = "0.6"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 serde = { version = "1.0", features = ["derive"] }

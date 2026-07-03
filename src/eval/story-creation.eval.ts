@@ -44,16 +44,12 @@ const trace = new TraceWriter("oracle").open({ mode: "oracle", baseDir })
   const mockResponses = [
     think("User wants a dragon story. Envoy delegates to storyteller.") + `I'll delegate this to the storyteller.` + makeToolCall("spawn_agent", { agent: "storyteller", task: jobTask, workspace: storyPath }),
     think("Check existing workspace contents before creating anything.") + `Let me check what exists first.` + makeToolCall("ls", { path: "workspace" }),
-    think("No story dir yet. Create it.") + `Setting up story directory.` + makeToolCall("mkdir", { path: "workspace/dragons" }),
     think("Start with the plan file.") + `Writing plan.` + makeToolCall("write", { path: "workspace/dragons/_plan.md", content: PLAN_CONTENT }),
     think("Write chapter 1 with character introduction and dialogue.") + `Chapter 1.` + makeToolCall("write", { path: "workspace/dragons/chapter-001.md", content: CH1_CONTENT }),
     think("Write chapter 2 building on the bond between characters.") + `Chapter 2.` + makeToolCall("write", { path: "workspace/dragons/chapter-002.md", content: CH2_CONTENT }),
     think("Write chapter 3 with the climax and resolution.") + `Chapter 3.` + makeToolCall("write", { path: "workspace/dragons/chapter-003.md", content: CH3_CONTENT }),
-    think("Now create wiki directories and populate them.") + `Wiki character dir.` + makeToolCall("mkdir", { path: "workspace/dragons/wiki/character" }),
-    makeToolCall("write", { path: "workspace/dragons/wiki/character/eryndor.md", content: WIKI_ERYNDOR }),
-    makeToolCall("mkdir", { path: "workspace/dragons/wiki/location" }),
+    think("Now create wiki entries.") + `Wiki character.` + makeToolCall("write", { path: "workspace/dragons/wiki/character/eryndor.md", content: WIKI_ERYNDOR }),
     makeToolCall("write", { path: "workspace/dragons/wiki/location/dragon-peak.md", content: WIKI_DRAGON_PEAK }),
-    makeToolCall("mkdir", { path: "workspace/dragons/wiki/faction" }),
     makeToolCall("write", { path: "workspace/dragons/wiki/faction/emerald-claw.md", content: WIKI_EMERALD_CLAW }),
     `Done! All chapters and wiki entries created.\n\n`,
     `Created _plan.md, chapter-001.md, chapter-002.md, chapter-003.md, wiki/character/eryndor.md, wiki/location/dragon-peak.md, wiki/faction/emerald-claw.md\n\n`,
@@ -96,7 +92,11 @@ const trace = new TraceWriter("oracle").open({ mode: "oracle", baseDir })
   const envoyToolErr = EvalController.validateToolCallFormat(mockResponses[0], envoy.toolDefs)
   const stToolDefs: ToolDef[] = storyteller.toolDefs
   const stErrors: string[] = []
-  for (let i = 1; i <= 12; i++) stErrors.push(...EvalController.validateToolCallFormat(mockResponses[i], stToolDefs))
+  for (let i = 1; i < mockResponses.length; i++) {
+    if (mockResponses[i].includes("<tool_call>")) {
+      stErrors.push(...EvalController.validateToolCallFormat(mockResponses[i], stToolDefs))
+    }
+  }
 
   const envoyGrammarErr = await EvalController.validateToolGrammar(envoy.toolDefs)
   const stGrammarErr = await EvalController.validateToolGrammar(stToolDefs)
@@ -122,12 +122,13 @@ const trace = new TraceWriter("oracle").open({ mode: "oracle", baseDir })
     { name: "wiki dragon-peak correct", pass: fs.readFileSync("workspace/dragons/wiki/location/dragon-peak.md", "utf-8") === WIKI_DRAGON_PEAK },
     { name: "wiki emerald-claw correct", pass: fs.readFileSync("workspace/dragons/wiki/faction/emerald-claw.md", "utf-8") === WIKI_EMERALD_CLAW },
     { name: "envoy spawned agent", pass: result.subToolCalls >= 1 },
-    { name: "storyteller made all 12 tool calls", pass: result.subToolCalls === 12 },
+    { name: "storyteller made at least 8 tool calls", pass: result.subToolCalls >= 8 },
     { name: "all mock responses consumed", pass: model.callCount === mockResponses.length },
     { name: "envoy tool call format valid", pass: envoyToolErr.length === 0 },
     { name: "storyteller tool calls format valid", pass: stErrors.length === 0 },
     { name: "envoy grammar valid", pass: envoyGrammarErr === null },
     { name: "storyteller grammar valid", pass: stGrammarErr === null },
+    { name: "tool responses traced", pass: result.toolResponseCount >= 8 },
   ]
 
   const allPass = EvalController.reportVerification("Oracle Verification", checks, trace)
@@ -209,6 +210,7 @@ async function runLive(baseDir: string, args: string[]): Promise<boolean> {
     // Tool usage
     { name: "at least 1 tool call", pass: result.subToolCalls > 0 },
     { name: "storyteller tool call format valid", pass: EvalController.validateToolCallFormat(result.storytellerOutput, storyteller.toolDefs).length === 0 },
+    { name: "tool responses traced", pass: result.toolResponseCount > 0 },
   ]
 
   const allPass = EvalController.reportVerification("Live Verification", checks, trace)

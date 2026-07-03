@@ -18,6 +18,7 @@ export interface RunResult {
   subToolCalls: number
   storyDir: string | null
   storytellerOutput: string
+  toolResponseCount: number
 }
 
 export interface Check { name: string; pass: boolean }
@@ -50,6 +51,7 @@ export class EvalController {
   }): Promise<RunResult> {
     let subToolCalls = 0
     let storytellerOutput = ""
+    let toolResponseCount = 0
     const { envoy, storyteller, userInput, onSpawnResult } = cfg
 
     const session = new SessionManager(this.baseDir, this.sessionId, "envoy")
@@ -90,18 +92,32 @@ export class EvalController {
               const contentPreview = toolArgs.content ? ` (${String(toolArgs.content).slice(0, 60).replace(/\n/g, "\\n")}...)` : ""
               console.error(`  STORYTELLER depth: ${name}${pathStr}${contentPreview}`)
             },
-            onToolResult: () => {},
+            onToolResult: (result) => {
+              toolResponseCount++
+              this.traceWriter.write("tool", JSON.stringify(result))
+            },
           })
 
           this.traceWriter.write("system", storyteller.instructions)
           this.traceWriter.write("user", taskText)
+          let stStreamStarted = false
           const subResult = await subLoop.run(taskText, {
-            onRawOutput: (raw) => this.traceWriter.write("assistant", raw),
+            onRawOutput: (raw) => {
+              if (!stStreamStarted) this.traceWriter.write("assistant", raw)
+            },
             onText: (t: string) => {
-              process.stdout.write(t)
               storytellerOutput += t
             },
+            onToken: (t: string) => {
+              process.stdout.write(t)
+              if (!stStreamStarted) {
+                this.traceWriter.append("assistant: ")
+                stStreamStarted = true
+              }
+              this.traceWriter.append(t)
+            },
           }, { temperature: 0.5, maxTokens: 2048 })
+          if (stStreamStarted) this.traceWriter.endLine()
 
           const summaryPrompt = `\n\nUser: Briefly report what was accomplished in the workspace.\n\nAssistant:`
           this.traceWriter.write("user", summaryPrompt)
@@ -131,13 +147,29 @@ export class EvalController {
           console.error(`  depth: tool "${name}"`)
         }
       },
+      onToolResult: (result) => {
+        toolResponseCount++
+        this.traceWriter.write("tool", JSON.stringify(result))
+      },
     })
 
     this.traceWriter.write("user", userInput)
+    let envoyStreamStarted = false
     const finalText = await agentLoop.run(userInput, {
-      onRawOutput: (raw) => this.traceWriter.write("assistant", raw),
+      onRawOutput: (raw) => {
+        if (!envoyStreamStarted) this.traceWriter.write("assistant", raw)
+      },
       onText: (t: string) => process.stdout.write(t),
+      onToken: (t: string) => {
+        process.stdout.write(t)
+        if (!envoyStreamStarted) {
+          this.traceWriter.append("assistant: ")
+          envoyStreamStarted = true
+        }
+        this.traceWriter.append(t)
+      },
     }, { maxTokens: 500, temperature: 0.5 })
+    if (envoyStreamStarted) this.traceWriter.endLine()
 
     const storyDir = this.findStoryDir(this.baseDir)
     return {
@@ -145,6 +177,7 @@ export class EvalController {
       subToolCalls,
       storyDir: storyDir ? path.basename(storyDir) : null,
       storytellerOutput,
+      toolResponseCount,
     }
   }
 

@@ -36,7 +36,7 @@ Only native backend via `src/cli.ts:createModel()`:
 | (default) | `NativeRwkvModel` — napi-rs Rust binding | `.st` (safetensors) | cargo, web-rwkv |
 | `--engine-url=` | `HttpModel` — remote engine | remote | nothing local |
 
-Auto-connect: by default, CLI checks `http://127.0.0.1:3030/health`. If gateway running, creates `HttpModel(engineUrl)` instead of loading model directly. Saves 4GB VRAM — no reload per invocation. Use `--no-gateway` to force direct native load.
+Auto-connect: by default, CLI checks `http://127.0.0.1:3030/rpc/health`. If gateway running, creates `HttpModel(engineUrl)` instead of loading model directly. Saves 4GB VRAM — no reload per invocation. Use `--no-gateway` to force direct native load.
 
 Default: `models/rwkv7-g1g-2.9b-20260526-ctx8192-converted.st`
 
@@ -47,24 +47,33 @@ Default: `models/rwkv7-g1g-2.9b-20260526-ctx8192-converted.st`
 | Path | Role |
 |------|------|
 | `src/cli.ts` | Entry point, arg parsing, createModel() dispatcher |
-| `src/types.ts` | Shared types: Model interface, MoSEHandle, LoRAHandle, GenerateOpts, ToolDef, ToolCall |
-| `src/model/native-rwkv-model.ts` | NativeRwkvModel — napi-rs wrapper. Implements Model interface. |
-| `src/model/http-model.ts` | HttpModel — talks to gateway HTTP/v1 endpoints. Used by CLI when auto-connecting. |
+| `src/types.ts` | Shared types: Model interface, ToolDef, ToolCall, ToolResult, GenerateOpts, StreamGenerateRequest with `onToken` callback |
+| `src/model/native-rwkv-model.ts` | NativeRwkvModel — napi-rs wrapper. `inferStream` per-token callback via `onToken` |
+| `src/model/http-model.ts` | HttpModel — talks to gateway oRPC endpoints. `streamGenerate` proxies per-token via event iterator |
 | `src/model/mose.ts` | MoSE state blending + LoRAManager. Works with native model states. |
-| `src/agent/loop.ts` | Agent loop: generate → parse tool calls → execute → feedback |
+| `src/agents/loop.ts` | Agent loop: generate → parse tool calls → execute → feedback. Has SEP/STOP_SEQ constants for format experimentation |
 | `src/session/session.ts` | SessionManager — JSONL event log (`sessions/<id>/session.jsonl`) |
 | `src/session/session-host.ts` | SessionHost — multi-session manager for gateway mode |
 | `src/tools/registry.ts` | Tool defs + handlers + helpers: `toolsToXml()`, `toolsToGbnf()`, `toolsToGbnfWithThink()`, `toolsToGbnfZod()` |
+| `src/tools/write.ts` | Auto-adds `.md` extension if path has no file extension |
 | `src/tools/*.ts` | Shared tool implementations (read, write, edit, ls, mkdir, grep, find) |
 | `src/tools/zod-to-gbnf.ts` | Zod→GBNF pipeline (zero deps) |
-| `src/agents/storyteller/` | Story generation agent |
+| `src/agents/loop.ts` | Agent loop. Uses `toolsToGbnfWithThink()` grammar (root allows `(think-block? ws)? text? ws (call ws text? ws)?`) |
+| `src/agents/storyteller/` | Story generation agent. No `mkdir` tool (write auto-creates dirs) |
+| `src/agents/storyteller/examples/` | State-tune examples with `\x00` blank-line indicator between turns |
 | `src/agents/envoy/` | User-facing agent — delegates via spawn_agent |
-| `src/gateway/server.ts` | Express + WS server. REST + WS chat. v1-compat endpoints. |
+| `src/eval/` | Oracle mock eval + live eval |
+| `src/eval/eval-controller.ts` | Runs agent hierarchy (envoy → storyteller). Traces tool responses via `onToolResult` |
+| `src/eval/story-creation.eval.ts` | 27 oracle checks + 16 live checks. Includes `tool responses traced` |
+| `src/eval/trace-writer.ts` | Streaming trace writer. `fs.writeSync` + `fs.fsyncSync` per line for real-time streaming |
+| `src/rpc/contract.ts` | oRPC contract with all procedures. `stream` returns event iterator for per-token yield |
+| `src/rpc/server.ts` | OpenAPIHandler mounted at `/rpc` |
+| `src/rpc/client.ts` | OpenAPILink typed client |
+| `src/gateway/server.ts` | Express + WS server. Mounts OpenAPIHandler. Serves OpenAPI spec at `/openapi.json` |
 | `src/grammars/` | GBNF grammar files (tool_call.gbnf, eot_tool_call.gbnf) |
 | `src/web/index.html` | Browser dashboard (served by gateway) |
-| `src/eval/` | Oracle mock eval + live eval |
 | `native/rwkv-bindings/` | Rust napi-rs crate (web-rwkv 0.10) |
-| `native/rwkv-bindings/rwkv-bindings/src/lib.rs` | Rust binding: RWSession → RwSession in JS |
+| `native/rwkv-bindings/rwkv-bindings/src/lib.rs` | Rust binding: RWSession → RwSession in JS. `inferStream` with per-token callback |
 | `sessions/<ts>_<id>_<slug>/` | Per-session dir: `session.jsonl`, `_state_*.state` |
 
 ## Model Interface
@@ -73,17 +82,21 @@ Default: `models/rwkv7-g1g-2.9b-20260526-ctx8192-converted.st`
 
 ```
 init, dispose, tokenize, detokenize,
-generate, generateStream, evaluate,
+generate, streamGenerate, evaluate,
 saveCheckpoint, loadCheckpoint, statePath,
 bakeSystemPrompt, loadBaseline, getStateSize,
 generateWithBlend, generateWithSegments,
 mose, loraMgr
 ```
 
+`streamGenerate` accepts `StreamGenerateRequest` with `onToken?: (token: string) => void` callback. Native model calls it per-token via `binding.inferStream`. HttpModel proxies through oRPC `stream` event iterator.
+
+Stop sequences (`stopTokens`) are passed to the Rust binding's `inferStream`/`infer` so the model stops generating at the right point — no wasted tokens, no state corruption from hallucinated content past the stop sequence.
+
 ## Native RWKV Binding (Rust/napi-rs)
 
 Crate at `native/rwkv-bindings/`. Build: `cd native/rwkv-bindings/rwkv-bindings && cargo build --release`
-(index.js copies .so → .node). Deps: web-rwkv (local `/tmp/web-rwkv`), napi 2, safetensors, half, memmap2.
+(index.js copies .so → .node). Deps: web-rwkv (local `/home/kit/extern/web-rwkv`), napi 2, safetensors, half, memmap2.
 
 Key facts:
 - `RWSession` → `RwSession` in JS (napi-rs name mangling)
@@ -95,17 +108,47 @@ Key facts:
 - Only RWKV v7 (`ModelVersion::V7`)
 - `infer()` must flush ALL prompt tokens before generation loop (fixed: prompt chunking via `RnnOption::Last` + chunk_size 128 only processes 128 tokens per `infer` call; generation must not start until `num_token() == 0`)
 - `bakeSystemPrompt` should NOT evaluate text into state (saves blank state as baseline; system prompt text handled via session `buildPrompt()` + `loadBaseline()` per request)
-- `generateStream` loads baseline before each request to prevent state accumulation across calls
+- `streamGenerate` loads baseline before each request to prevent state accumulation across calls. Has per-token callback path (`inferStream`) and batch path (`infer`).
+- RWKV vocab includes `\x00` (null byte, token ID present in vocab)
 
 ## Agent Loop Protocol
 
 Model outputs `<tool_call>\n{"name": "...", "args": {...}}\n</tool_call>`.
-Agent feeds back `<tool_result>\n{...}\n</tool_result>`. Results truncated to 2000 chars.
+Agent feeds back `<tool_response>\n{...}\n</tool_response>`. Results truncated to 2000 chars.
 
-Stop sequence: `["</tool_call>"]` cuts generation at closing tag (prevents hallucinated `<tool_result>`).
-Grammar: `toolsToGbnfWithThink()` — allows think blocks, text, then single tool call.
+Stop sequence: `["</tool_call>", "\n\nUser:", "\x03"]` — configurable via `STOP_SEQ` constant in `loop.ts`.
+Grammar: `toolsToGbnfWithThink()` — allows think blocks, text, then tool call with optional trailing text:
+```
+root ::= (think-block? ws)? text? ws (call ws text? ws)?
+```
 
-`toolsToGbnfZod()` generates GBNF from Zod schemas on tool defs — used when grammar is available.
+### Format Configuration (`src/agents/loop.ts`)
+
+Two module-level constants control the inter-turn format:
+
+- **`SEP`** — blank-line indicator inserted between assistant output and tool response.
+  Normally `"\x00"` (null byte, in RWKV vocab). Changes the prompt format:
+  No SEP: `\n\nUser:\n` / `\n\nAssistant:` (blank line separators)
+  With SEP: `\x00\nUser:\n` / `\x00\nAssistant:` (SEP replaces blank lines)
+
+- **`STOP_SEQ`** — generation stop sequences. First entry is primary stop.
+  Default: `["</tool_call>", "\n\nUser:", "\x03"]`
+  To use SEP as stop: `[SEP, "\n\nUser:", "\x03"]`
+
+Change these constants to experiment with different formats. The grammar root allows trailing text after `call`, so SEP can appear in model output if stop sequence allows it.
+
+### Loop Detection
+
+Agent loop tracks the last 8 tool call signatures. For `write` calls, it tracks by path only (ignoring content). If the same (name \+ path) appears 3+ times, the call is skipped and an error tool response is injected telling the model to try a different path.
+
+### Tool Response Tracing
+
+`onToolResult` callbacks in `EvalController` write every tool result to the trace file (via `TraceWriter.write("tool", JSON.stringify(result))`). The trace shows:
+```
+tool: <tool_response>
+{"name":"write","success":true,"data":{...}}
+</tool_response>
+```
 
 ## Session Persistence
 
@@ -117,13 +160,29 @@ JSONL: init → message → checkpoint → baseline lines.
 
 `pnpm gateway` starts Express + WS on `0.0.0.0:3030`.
 
-REST endpoints: `/health`, `/sessions`, `/chat`, `/mose/*`, `/lora/*`, `/v1/generate`, `/v1/stream` (SSE), `/v1/evaluate`, `/v1/state/save`, `/v1/state/load`
+REST endpoints: `/health`, `/rpc/*` (oRPC), `/openapi.json` (OpenAPI spec), `/sessions`, `/chat`, `/mose/*`, `/lora/*`, `/v1/generate`, `/v1/stream` (SSE), `/v1/evaluate`, `/v1/state/save`, `/v1/state/load`
 WS messages: `chat`, `create_session`, `switch_session`, `delete_session`
 WS broadcasts: `token`, `user_message`, `done`, `session_*`
 
+## Write Tool Auto-Extension
+
+`src/tools/write.ts` checks if the filename portion of the path includes a `.`. If not, it appends `.md` before writing. This ensures files like `wiki/character/ignis` become `wiki/character/ignis.md`.
+
+## Storyteller Agent
+
+`src/agents/storyteller/` — no `mkdir` tool (write auto-creates dirs). Tools: `write`, `ls`, `read`, `edit`, `grep`, `find`, `story-analyze`, `story-validate`.
+
+Instructions enforce:
+- All files must end with `.md` (write auto-adds)
+- Never write to same path twice
+- Complete full structure before stopping: `_plan.md` + `chapter-001.md`–`003.md` + wiki (character, location, faction)
+
+Examples in `src/agents/storyteller/examples/*.txt` show exact workflow with `\x00` as blank-line indicator between assistant output and user tool response.
+
 ## Known Quirks
 
-- `generateStream` is batch wrapper: full-output-then-callback on native (no streaming callback yet)
+- `streamGenerate` has two paths: per-token callback (`inferStream` + `onToken`) and batch (`infer`). `HttpModel` always proxies through the event-iterator path via oRPC `stream` procedure.
+- Stop sequences (`stopTokens`) are passed to the Rust binding's `infer`/`inferStream` — the Rust generation loop checks `output.ends_with(stop)` after each token and returns early when matched. This prevents wasted tokens AND state corruption from hallucinated content past the stop sequence.
 - Grammar identifiers: `[a-zA-Z][a-zA-Z0-9]*` only (no `_` or `-`)
 - RWSession → RwSession in JS (napi-rs name mangling)
 - MoSE/LoRA/statesave/samplers are stubs in NativeRwkvModel — implement from axum reference
@@ -133,6 +192,10 @@ WS broadcasts: `token`, `user_message`, `done`, `session_*`
 - Grammar set via `set_grammar()` (compiles GBNF string), each `infer()` call creates fresh `GrammarState` so every generation starts clean
 - `token_strings` precomputed from `tokenizer.token_index_to_bytes()` (lossy UTF-8 conversion) — rebuilt on init
 - Grammar identifier constraint `[a-zA-Z][a-zA-Z0-9]*` from schoolmarm parser — tool rules use names like `callread`, `callwrite`
+- RWKV tokenizer includes `\x00` (null byte) in its vocabulary — can be used as blank-line indicator or stop token
+- `\x00` in JSON is `JSON.stringify`-escaped as `\u0000`, so it transmits cleanly over HTTP
+- `TraceWriter` calls `fs.fsyncSync` after each write for real-time trace streaming
+- Trace streaming: `onToken` writes each generated token to stdout AND appends to trace file ("assistant: " prefix on first token, raw text appended per token, `endLine()` after generation completes)
 
 ## oRPC (implemented)
 
@@ -142,9 +205,9 @@ WS broadcasts: `token`, `user_message`, `done`, `session_*`
 
 | Path | Role |
 |------|------|
-| `src/rpc/contract.ts` | Shared procedure defs (Zod schemas for input/output), `oc.router({...})` |
-| `src/rpc/server.ts` | `implement(contract)` → `RPCHandler` mounted in `GatewayServer` at `/rpc` |
-| `src/rpc/client.ts` | `createORPCClient(new RPCLink(...))` typed as `ContractRouterClient<typeof contract>` |
+| `src/rpc/contract.ts` | Shared procedure defs (Zod schemas for input/output), `oc.router({...})` with `.route({ method, path })` annotations |
+| `src/rpc/server.ts` | `implement(contract)` → `OpenAPIHandler` mounted in `GatewayServer` at `/rpc`. Spec at `/openapi.json` |
+| `src/rpc/client.ts` | `createORPCClient(new OpenAPILink(...))` typed as `ContractRouterClient<typeof contract>` |
 
 ### Procedures
 
@@ -152,25 +215,17 @@ All `Model` + `SessionHost` operations are single-sourced in `contract.ts`:
 
 | Namespace | Procedures |
 |-----------|-----------|
-| (root) | `process`, `generate`, `stream` (event iterator), `interrupt`, `evaluate`, `saveCheckpoint`, `loadCheckpoint` |
+| (root) | `process`, `generate`, `stream` (event iterator, per-token yield via `yieldToken`), `health`, `interrupt`, `evaluate`, `saveCheckpoint`, `loadCheckpoint` |
 | session | `listSessions`, `createSession`, `switchSession`, `deleteSession`, `getMessages`, `chat` |
 | `mose` | `createExpert`, `list`, `removeExpert`, `apply`, `segmentRoute` |
 | `lora` | `add`, `list`, `remove`, `activate`, `deactivate` |
 
-### Key Fixes
-
-- **Path alignment** — `HttpModel` calls `/rpc/process` etc. via typed client, not manually wired paths
-- **`blend`/`segments`** — passed through contract schemas, no longer silently dropped
-- **MoSE/LoRA** — `HttpModel` now calls real gateway endpoints instead of stubs
-- **Type safety** — `pnpm typecheck` catches any contract/handler mismatch immediately
-- **No manual `jsonReq`** — all fetch logic handled by `RPCLink`
-
 ### Status
 
-- ✅ Contract defined in `contract.ts`
-- ✅ Server router in `server.ts`, mounted at `/rpc` in GatewayServer
-- ✅ Typed client in `client.ts`, used by `HttpModel`
-- ✅ Oracle eval 26/26, agent-loop 5/5, trace 20/20 pass
+- ✅ Contract defined in `contract.ts` with `.route()` annotations
+- ✅ Server router in `server.ts`, `OpenAPIHandler` mounted at `/rpc` in GatewayServer
+- ✅ Typed client in `client.ts`, uses `OpenAPILink` matching `OpenAPIHandler` routes
+- ✅ Oracle eval 27/27, live eval 16/16 (passes with model consistency)
 - ⏳ Old ad-hoc GatewayServer endpoints still present for backward compat — can be removed once any WebSocket broadcast logic is moved to oRPC handlers
 
 ## Build Notes
@@ -179,14 +234,20 @@ All `Model` + `SessionHost` operations are single-sourced in `contract.ts`:
 - ESM (`"type": "module"`). Run with `tsx`. TypeScript 6.0
 - `tsconfig.json`: `moduleResolution: nodenext`, `noEmit`
 - Native binding: `cargo build --release` in `native/rwkv-bindings/rwkv-bindings/`
-- web-rwkv at local path `/tmp/web-rwkv` (not npm/crates.io)
+- web-rwkv at local path `/home/kit/extern/web-rwkv` (not npm/crates.io)
 - `.gitignore`: `native/**/target/`, `*.node`, `models/`, `sessions/`, `*.state`
 
 ## Testing
 
 No test runner. Only:
 - `pnpm typecheck` — `tsc --noEmit`
-- `pnpm eval` — oracle mode (MockEngine, no model)
-- `pnpm eval:live` — real model eval
+- `pnpm eval` — oracle mode (MockEngine, no model), 27 checks
+- `pnpm eval:live` — real model eval, 16 checks
 
-Eval traces stored in `src/eval/.traces/` (gitignored).
+Eval traces stored in `src/eval/.traces/` (gitignored). Streaming: each line is `fs.fsyncSync`'d immediately.
+
+### Checks
+
+Oracle (27): workspace dir, story dir, plan file, 3 chapters, 3 wiki dirs, 3 wiki entries, exact content match, envoy spawned, tool call count, mock consumed, format valid, grammar valid, tool responses traced.
+
+Live (16): envoy spawned, format valid, workspace/story dir, plan file, 3 chapters, wiki character/location/faction dirs + entries, tool call count, tool format valid, tool responses traced.

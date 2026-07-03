@@ -19,8 +19,8 @@ interface RwSessionInstance {
   init(modelPath: string, vocabPath?: string, quantLayers?: number): Promise<void>
   tokenize(text: string): number[]
   detokenize(tokens: number[]): string
-  infer(tokens: number[], maxTokens?: number, temperature?: number, topP?: number): Promise<string>
-  inferStream(tokens: number[], onToken: (token: string) => void, maxTokens?: number, temperature?: number, topP?: number): Promise<string>
+  infer(tokens: number[], maxTokens?: number, temperature?: number, topP?: number, stopTokens?: string[]): Promise<string>
+  inferStream(tokens: number[], onToken: (token: string) => void, maxTokens?: number, temperature?: number, topP?: number, stopTokens?: string[]): Promise<string>
   getStateSize(): number
   saveState(path: string): Promise<void>
   loadState(path: string): Promise<void>
@@ -170,23 +170,6 @@ export class NativeRwkvModel implements Model {
     return { stopReason: "Interrupted" }
   }
 
-  private filterByStopSequences(text: string, stopSequences: string[]): { text: string; stopped: boolean } {
-    if (stopSequences.length === 0) return { text, stopped: false }
-    let earliest = -1
-    let earliestSeq = ""
-    for (const seq of stopSequences) {
-      const idx = text.indexOf(seq)
-      if (idx !== -1 && (earliest === -1 || idx < earliest)) {
-        earliest = idx
-        earliestSeq = seq
-      }
-    }
-    if (earliest !== -1) {
-      return { text: text.slice(0, earliest + earliestSeq.length), stopped: true }
-    }
-    return { text, stopped: false }
-  }
-
   async generate(req: GenerateRequest): Promise<GenerateResult> {
     return this.streamGenerate({ ...req, onToken: undefined })
   }
@@ -208,6 +191,8 @@ export class NativeRwkvModel implements Model {
     const grammar = opts.grammar as string | undefined
     if (grammar) binding.setGrammar(grammar)
 
+    const bindingStopTokens = stopSequences.length > 0 ? stopSequences : undefined
+
     const tokens = binding.tokenize(req.prompt)
 
     const timeout = new Promise<never>((_, reject) =>
@@ -228,14 +213,14 @@ export class NativeRwkvModel implements Model {
           binding.inferStream(tokens, (token: string) => {
             raw += token
             req.onToken!(token)
-          }, maxTokens, temperature, topP),
+          }, maxTokens, temperature, topP, bindingStopTokens),
           abortCheck(),
           timeout,
         ]) as string
         if (result && result.length > raw.length) raw = result
       } else {
         const result = await Promise.race([
-          binding.infer(tokens, maxTokens, temperature, topP),
+          binding.infer(tokens, maxTokens, temperature, topP, bindingStopTokens),
           abortCheck(),
           timeout,
         ]) as string
@@ -249,8 +234,8 @@ export class NativeRwkvModel implements Model {
       throw err
     }
 
-    const { text, stopped } = this.filterByStopSequences(raw, stopSequences)
-    return { sessionId: req.sessionId, text, stopReason: stopped ? "stop" : "length" }
+    const stopSeqFound = stopSequences.some(s => raw.endsWith(s))
+    return { sessionId: req.sessionId, text: raw, stopReason: stopSeqFound ? "stop" : "length" }
   }
 
   async dispose(): Promise<void> {

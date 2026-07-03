@@ -61,9 +61,26 @@ export class TraceWriter {
     return this.filePath
   }
 
+  /** Append raw text to current line (for streaming tokens) */
+  append(text: string) {
+    if (this.fd !== null) {
+      fs.writeSync(this.fd, text)
+      fs.fsyncSync(this.fd)
+    }
+  }
+
+  /** End current streaming line */
+  endLine() {
+    if (this.fd !== null) {
+      fs.writeSync(this.fd, "\n")
+      fs.fsyncSync(this.fd)
+    }
+  }
+
   private emit(line: string) {
     if (this.fd !== null) {
       fs.writeSync(this.fd, line + "\n")
+      fs.fsyncSync(this.fd)
     }
   }
 }

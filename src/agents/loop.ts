@@ -6,6 +6,20 @@ import { SessionManager } from "../session/session.ts"
 import { GenerateOpts, DEFAULT_GEN_OPTS, GenerateCallbacks, ToolCall, ToolResult, ToolDef, ToolHandler } from "../types.ts"
 import { toolDefs as defaultToolDefs, toolHandlers as defaultHandlers, toolsToXml, toolsToGbnfWithThink } from "../tools/registry.ts"
 
+/**
+ * SEP — blank-line indicator inserted between turns in the prompt.
+ * RWKV vocab includes \x00 so it tokenizes cleanly. Replaces empty lines
+ * that would otherwise separate Assistant output from User tool responses.
+ *
+ * STOP_SEQ — generation stops when any of these strings appear.
+ * Primary stop is </tool_call>. \n\n is the universal "next turn" indicator
+ * (User: or Assistant:).
+ *
+ * To experiment: change SEP and/or add/remove items from STOP_SEQ.
+ */
+const SEP = "\n\n"
+const STOP_SEQ = ["</tool_call>", "\n\nUser:", "\x03"]
+
 function clean(txt: string): string {
   return txt.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim()
 }
@@ -130,22 +144,27 @@ export class AgentLoop {
 
     while (depth < this.maxDepth) {
       callbacks?.onPrompt?.(fullPrompt)
-      const genRes = await this.model.generate({
+      let rawRaw = ""
+      const genRes = await this.model.streamGenerate({
         sessionId: this.sessionId,
         prompt: fullPrompt,
         opts: {
           ...DEFAULT_GEN_OPTS,
           temperature: 0.7,
-          stopSequences: ["</tool_call>", "\n\nUser:", "\x03"],
+          stopSequences: STOP_SEQ,
           grammar: toolsToGbnfWithThink(this.config.toolDefs),
           ...opts,
         },
+        onToken: (token: string) => {
+          rawRaw += token
+          callbacks?.onToken?.(token)
+        },
       })
-      const rawRaw = genRes.text
+      if (genRes.text.length > rawRaw.length) rawRaw = genRes.text
 
-      const endedWithToolCall = rawRaw.endsWith("</tool_call>")
-      const endedWithUser = !endedWithToolCall && (rawRaw.includes("\n\nUser:") || rawRaw.endsWith("\x03"))
       const raw = rawRaw.replace(/\x03/g, "")
+      const endedWithToolCall = raw.endsWith("</tool_call>")
+      const endedWithUser = !endedWithToolCall && (raw.includes("\n\nUser:") || raw.endsWith("\x03"))
       callbacks?.onRawOutput?.(raw)
 
       const { text, toolCalls, errors } = this.parseToolCalls(raw)
@@ -154,13 +173,14 @@ export class AgentLoop {
 
       const allCalls = [...toolCalls, ...errors]
       if (allCalls.length === 0) {
-        if (endedWithUser) {
-          // Model signaled end of turn — wait for user input
-          break
-        }
-        // Hit maxTokens without tool call or user handoff — still return what we have
+        if (endedWithUser || raw.includes(SEP)) break
         break
       }
+
+      // Strip everything after the last </tool_call> to prevent hallucinated
+      // \n\nUser: or other stop sequences from corrupting the next prompt
+      const lastClose = raw.lastIndexOf("</tool_call>")
+      const rawForPrompt = lastClose !== -1 ? raw.slice(0, lastClose + 12) : raw
 
       let resultsBlock = ""
       for (const call of allCalls) {
@@ -176,7 +196,7 @@ export class AgentLoop {
         this.config.onToolResult?.(result)
         resultsBlock += this.formatToolResult(result) + "\n"
       }
-      fullPrompt += raw + "\n\nUser: " + resultsBlock.trim() + "\n\nAssistant:"
+      fullPrompt += rawForPrompt + SEP + "User:\n" + resultsBlock.trim() + "\n\nAssistant:"
       await this.session.save()
       depth++
     }
@@ -280,12 +300,12 @@ export class AgentLoop {
 
   private isRepeatedLoop(call: ToolCall, depth: number): boolean {
     if (depth < 2) return false
-    const sig = call.name + ":" + JSON.stringify(call.args)
-    this.lastCallSignatures.push(sig)
-    if (this.lastCallSignatures.length > 10) this.lastCallSignatures.shift()
+    const pathKey = call.name === "write" ? call.name + ":" + (call.args.path as string) : call.name + ":" + JSON.stringify(call.args)
+    this.lastCallSignatures.push(pathKey)
+    if (this.lastCallSignatures.length > 8) this.lastCallSignatures.shift()
     let count = 0
     for (const s of this.lastCallSignatures) {
-      if (s === sig) count++
+      if (s === pathKey) count++
     }
     return count >= 3
   }

@@ -210,6 +210,7 @@ impl RWSession {
         max_tokens: Option<u32>,
         temperature: Option<f64>,
         top_p: Option<f64>,
+        stop_tokens: Option<Vec<String>>,
     ) -> Result<String> {
         let runtime = self
             .runtime
@@ -281,6 +282,13 @@ impl RWSession {
                 let word = String::from_utf8_lossy(&decoded).to_string();
                 output.push_str(&word);
                 prompt.batches[0].push(token);
+
+                // Check stop sequences on first token
+                if let Some(ref stops) = stop_tokens {
+                    if stops.iter().any(|s| output.ends_with(s)) {
+                        return Ok(output);
+                    }
+                }
                 break; // done flushing, enter generation loop below
             }
             // prompt still has unprocessed tokens, continue flushing
@@ -330,6 +338,15 @@ impl RWSession {
             output.push_str(&word);
 
             prompt.batches[0].push(token);
+
+            // Check stop sequences
+            if let Some(ref stops) = stop_tokens {
+                for stop in stops {
+                    if output.ends_with(stop) {
+                        return Ok(output);
+                    }
+                }
+            }
         }
 
         Ok(output)
@@ -343,6 +360,7 @@ impl RWSession {
         max_tokens: Option<u32>,
         temperature: Option<f64>,
         top_p: Option<f64>,
+        stop_tokens: Option<Vec<String>>,
     ) -> Result<String> {
         let tsfn = on_token;
 
@@ -414,11 +432,15 @@ impl RWSession {
                     .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
                 let word = String::from_utf8_lossy(&decoded).to_string();
                 output.push_str(&word);
-                tsfn.call(
-                    word,
-                    ThreadsafeFunctionCallMode::NonBlocking,
-                );
+                tsfn.call(word, ThreadsafeFunctionCallMode::NonBlocking);
                 prompt.batches[0].push(token);
+
+                // Check stop sequences on first token
+                if let Some(ref stops) = stop_tokens {
+                    if stops.iter().any(|s| output.ends_with(s)) {
+                        return Ok(output);
+                    }
+                }
                 break;
             }
         }
@@ -465,12 +487,15 @@ impl RWSession {
                 .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
             let word = String::from_utf8_lossy(&decoded).to_string();
             output.push_str(&word);
-            tsfn.call(
-                word,
-                ThreadsafeFunctionCallMode::NonBlocking,
-            );
-
+            tsfn.call(word, ThreadsafeFunctionCallMode::NonBlocking);
             prompt.batches[0].push(token);
+
+            // Check stop sequences
+            if let Some(ref stops) = stop_tokens {
+                if stops.iter().any(|s| output.ends_with(s)) {
+                    return Ok(output);
+                }
+            }
         }
 
         Ok(output)
