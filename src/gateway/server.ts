@@ -20,6 +20,7 @@ export class GatewayServer {
   private channels: Map<number, WebSocket> = new Map()
   private ready: Promise<void>
   private resolveReady!: () => void
+  private readyFlag = false
 
   constructor(host: SessionHost, webappDir?: string, modelPath?: string) {
     this.host = host
@@ -40,7 +41,12 @@ export class GatewayServer {
     this.server = http.createServer(this.app)
     this.wss = new WebSocketServer({ server: this.server })
 
-    const rpcHandler = createOpenAPIHandler(this.host._model, this.host, modelPath)
+    const rpcHandler = createOpenAPIHandler(
+      this.host._model,
+      this.host,
+      modelPath,
+      () => this.isReady(),
+    )
     this.app.use("/rpc{/*path}", async (req, res, next) => {
       const { matched } = await rpcHandler.handle(req as any, res as any, { prefix: "/rpc", context: {} })
       if (!matched) next()
@@ -52,7 +58,13 @@ export class GatewayServer {
 
   /** Mark model as ready — queued requests will now proceed. */
   markReady() {
+    this.readyFlag = true
     this.resolveReady()
+  }
+
+  /** Returns true once `markReady()` has been called. */
+  isReady(): boolean {
+    return this.readyFlag
   }
 
   private setupRoutes() {

@@ -2,27 +2,33 @@
 
 Tracked follow-ups. Lightweight — each entry links to the relevant files.
 
-## Storyteller finish tool (configurable)
+## Storyteller finish tool (configurable) — superseded
 
-The `spawn_agent` tool should tell the subagent (storyteller) to call a completion tool
-when done. The completion tool name (`finish` / `end` / `report_completion` / `plan` /
-`todo`) should be configurable per invocation so different agents/calls can request
-different completion semantics.
+Originally planned, then the design was simplified: drop the finish tool entirely.
+Take the sub-agent's last assistant text and feed it back into the parent's tool
+response block, mirroring the real inference prompt sequence (`\n\ntool: ...`).
+Implemented in `src/eval/eval-controller.ts` (spawn_agent handler now returns
+`{summary: lastAssistantText}`); the parent trace no longer shows the parent's
+separate "Briefly report..." turn.
 
-Scope:
-- Add a `finish` tool (or equivalent) to the storyteller tool set — calls it once when
-  all work is done and returns its result to the parent as the agent's completion signal.
-- `spawn_agent` accepts an optional `finishTool` (or `onComplete`) parameter that is
-  forwarded into the spawned agent's instructions, naming the tool the subagent should
-  call to signal completion.
-- Default value: `finish`. Configurable via spawn-agent arg and/or per-agent default in
-  `agent-loader.ts`.
-- Eval: oracle + live should assert storyteller calls the configured completion tool
-  before `spawn_agent` returns.
+## Gateway readiness for `eval:live`
 
-Files likely touched:
-- `src/agents/storyteller/tools/` — new tool file (mirrors `story-validate.ts` shape)
-- `src/agents/storyteller/instructions.mdx` — mention the completion tool
-- `src/agents/envoy/tools/` — pass through the completion tool name
-- `src/agents/agent-loader.ts` — optional per-agent default
-- `src/eval/story-creation.eval.ts` — completion-tool check
+`pnpm eval:live` polls `/rpc/health` until `status: "ok"`. Health now returns
+`status: "starting"` while the gateway is still loading the model; the
+client-side helper `tryConnectGateway` waits (default up to 5 minutes) and
+returns the `HttpModel` once the model is ready.
+
+Files:
+- `src/rpc/contract.ts` — health output now `status: "ok" | "starting"`
+- `src/rpc/server.ts:18` — health handler reads `modelReady()`
+- `src/gateway/server.ts:54` — `markReady()`/`isReady()` flag, wired to oRPC
+- `src/eval/story-creation.eval.ts:155` — polling helper used by `runLive`
+
+## Open items (carryover)
+
+- Update example JSONL / grammar `$ref` paths to match the new tag-indent
+  style uniformly (currently auto-generated grammar is consistent; hand-
+  authored JSONL examples may still mix styles).
+- Consider replacing `Envoy` maxDepth=1 with explicit two-pass pattern so the
+  parent naturally sees its tool responses in-session rather than via manual
+  resume.

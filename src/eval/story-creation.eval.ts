@@ -152,15 +152,45 @@ const trace = new TraceWriter("oracle").open({ mode: "oracle", baseDir })
 
 // ── Live mode ──
 
-async function tryConnectGateway(port = 3030): Promise<Model | null> {
-  try {
-    const r = await fetch(`http://127.0.0.1:${port}/rpc/health`, { signal: AbortSignal.timeout(1500) })
-    if (r.ok) {
-      console.error(`Gateway running on :${port}, connecting...`)
-      return new HttpModel(`http://127.0.0.1:${port}`)
+/**
+ * Poll a gateway's `/rpc/health` until it reports `status: "ok"`.
+ * Returns the `HttpModel` to use, or `null` if no gateway is reachable.
+ *
+ * - If the first probe fails, returns null (gateway not running).
+ * - If the first probe says `starting`, polls every `pollMs` until "ok" or
+ *   the total wait exceeds `waitMs`.
+ * - If the first probe already says "ok", returns immediately.
+ */
+async function tryConnectGateway(port = 3030, opts: { waitMs?: number; pollMs?: number } = {}): Promise<Model | null> {
+  const { waitMs = 5 * 60 * 1000, pollMs = 2000 } = opts
+  const url = `http://127.0.0.1:${port}/rpc/health`
+  const deadline = Date.now() + waitMs
+
+  for (;;) {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(1500) })
+      if (r.ok) {
+        const body = await r.json().catch(() => ({})) as { status?: string; stateSize?: number }
+        if (body.status === "ok") {
+          console.error(`Gateway ready on :${port} (stateSize=${body.stateSize ?? 0})`)
+          return new HttpModel(`http://127.0.0.1:${port}`)
+        }
+        if (body.status === "starting") {
+          const remaining = Math.max(0, deadline - Date.now())
+          console.error(`Gateway starting on :${port} (model still loading) — waiting${remaining ? ` up to ${Math.ceil(remaining / 1000)}s` : ""}...`)
+          if (remaining === 0) return null
+          await new Promise((r) => setTimeout(r, Math.min(pollMs, remaining)))
+          continue
+        }
+        // Unexpected body shape — assume it's reachable and let the caller try.
+        console.error(`Gateway responding on :${port} (status=${body.status ?? "?"}), connecting...`)
+        return new HttpModel(`http://127.0.0.1:${port}`)
+      }
+    } catch {
+      // No gateway at all
+      return null
     }
-  } catch { }
-  return null
+  }
 }
 
 async function runLive(baseDir: string, args: string[]): Promise<boolean> {

@@ -12,12 +12,15 @@ export interface RpcContext {
 
 const base = implement(contract)
 
-function createRouter(model: Model, host: SessionHost, modelPath: string) {
+function createRouter(model: Model, host: SessionHost, modelPath: string, modelReady: () => boolean) {
   const modelName = modelPath.split("/").pop() || modelPath
   return base.router({
     health: base.health.handler(async () => {
       const stateSize = model.getStateSize()
-      return { status: "ok" as const, stateSize }
+      return {
+        status: modelReady() ? ("ok" as const) : ("starting" as const),
+        stateSize,
+      }
     }),
 
     modelInfo: base.modelInfo.handler(async () => {
@@ -160,8 +163,13 @@ function createRouter(model: Model, host: SessionHost, modelPath: string) {
 
 let routerInstance: ReturnType<typeof createRouter> | null = null
 
-export function createOpenAPIHandler(model: Model, host: SessionHost, modelPath = "unknown"): OpenAPIHandler<Record<string, never>> {
-  routerInstance = createRouter(model, host, modelPath)
+export function createOpenAPIHandler(
+  model: Model,
+  host: SessionHost,
+  modelPath = "unknown",
+  modelReady: () => boolean = () => true,
+): OpenAPIHandler<Record<string, never>> {
+  routerInstance = createRouter(model, host, modelPath, modelReady)
   return new OpenAPIHandler(routerInstance)
 }
 

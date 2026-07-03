@@ -63,7 +63,10 @@ const StopReason = z.object({ stopReason: z.literal("Interrupted") })
 export const contract = oc.router({
   health: oc
     .route({ method: "GET", path: "/health" })
-    .output(z.object({ status: z.literal("ok"), stateSize: z.number() })),
+    .output(z.object({
+      status: z.union([z.literal("ok"), z.literal("starting")]),
+      stateSize: z.number(),
+    })),
 
   modelInfo: oc
     .route({ method: "GET", path: "/model-info" })
