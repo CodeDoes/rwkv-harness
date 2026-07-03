@@ -74,6 +74,17 @@ registerTemplate("no-think", (entries) => {
   return getTemplate("default")(filtered)
 })
 
+/// ── Render a single assistant turn (for mock responses) ──
+/// Produces content without "Assistant:" prefix.
+/// Filters to think/tool_call/text entries only.
+
+export function renderAssistantTurn(entries: ExampleEntry[], templateName = "default"): string {
+  const filtered = entries.filter(e => e.type === "think" || e.type === "tool_call" || e.type === "text")
+  const rendered = getTemplate(templateName)(filtered)
+  // Remove the leading "Assistant: " prefix added by the conversation template
+  return rendered.replace(/^Assistant:\s*/, "")
+}
+
 /// ── Loading ──
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))

@@ -5,7 +5,8 @@ import * as os from "os"
 import { fileURLToPath } from "url"
 import { EvalController, type Check } from "./eval-controller.ts"
 import { loadAgent } from "../agents/agent-loader.ts"
-import { renderExamples } from "../agents/examples.ts"
+import { renderExamples, renderAssistantTurn } from "../agents/examples.ts"
+import type { ExampleEntry } from "../agents/example-template.ts"
 import type { ToolDef, Model } from "../types.ts"
 import { HttpModel } from "../model/http-model.ts"
 import { TraceWriter } from "./trace-writer.ts"
@@ -14,10 +15,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PROJECT_ROOT = path.resolve(__dirname, "../..")
 
 const USER_INPUT = "Create a story about dragons with 3 first chapters and an up-to-date wiki."
-
-function makeToolCall(name: string, args: Record<string, unknown>): string {
-  return `<tool_call>\n${JSON.stringify({ name, arguments: args })}\n</tool_call>\n`
-}
 
 // ── Oracle content ──
 
@@ -38,23 +35,25 @@ async function runOracle(baseDir: string): Promise<boolean> {
 
 const trace = new TraceWriter("oracle").open({ mode: "oracle", baseDir })
 
-  function think(content: string): string {
-    return `<think>${content}</think>\n`
+  function tc(name: string, args: Record<string, unknown>): ExampleEntry {
+    return { type: "tool_call", content: JSON.stringify({ name, arguments: args }) }
   }
 
-  const mockResponses = [
-    think("User wants a dragon story. Envoy delegates to storyteller.") + `I'll delegate this to the storyteller.` + makeToolCall("spawn_agent", { agent: "storyteller", task: jobTask, workspace: storyPath }),
-    think("Check existing workspace contents before creating anything.") + `Let me check what exists first.` + makeToolCall("ls", { path: "workspace" }),
-    think("Start with the plan file.") + `Writing plan.` + makeToolCall("write", { path: "workspace/dragons/_plan.md", content: PLAN_CONTENT }),
-    think("Write chapter 1 with character introduction and dialogue.") + `Chapter 1.` + makeToolCall("write", { path: "workspace/dragons/chapter-001.md", content: CH1_CONTENT }),
-    think("Write chapter 2 building on the bond between characters.") + `Chapter 2.` + makeToolCall("write", { path: "workspace/dragons/chapter-002.md", content: CH2_CONTENT }),
-    think("Write chapter 3 with the climax and resolution.") + `Chapter 3.` + makeToolCall("write", { path: "workspace/dragons/chapter-003.md", content: CH3_CONTENT }),
-    think("Now create wiki entries.") + `Wiki character.` + makeToolCall("write", { path: "workspace/dragons/wiki/character/eryndor.md", content: WIKI_ERYNDOR }),
-    makeToolCall("write", { path: "workspace/dragons/wiki/location/dragon-peak.md", content: WIKI_DRAGON_PEAK }),
-    makeToolCall("write", { path: "workspace/dragons/wiki/faction/emerald-claw.md", content: WIKI_EMERALD_CLAW }),
-    `Done! All chapters and wiki entries created.\n\n`,
-    `Created _plan.md, chapter-001.md, chapter-002.md, chapter-003.md, wiki/character/eryndor.md, wiki/location/dragon-peak.md, wiki/faction/emerald-claw.md\n\n`,
+  const mockTurns: ExampleEntry[][] = [
+    [{ type: "think", content: "User wants a dragon story. Envoy delegates to storyteller." }, { type: "text", content: "I'll delegate this to the storyteller." }, tc("spawn_agent", { agent: "storyteller", task: jobTask, workspace: storyPath })],
+    [{ type: "think", content: "Check existing workspace contents before creating anything." }, { type: "text", content: "Let me check what exists first." }, tc("ls", { path: "workspace" })],
+    [{ type: "think", content: "Start with the plan file." }, { type: "text", content: "Writing plan." }, tc("write", { path: "workspace/dragons/_plan.md", content: PLAN_CONTENT })],
+    [{ type: "think", content: "Write chapter 1 with character introduction and dialogue." }, { type: "text", content: "Chapter 1." }, tc("write", { path: "workspace/dragons/chapter-001.md", content: CH1_CONTENT })],
+    [{ type: "think", content: "Write chapter 2 building on the bond between characters." }, { type: "text", content: "Chapter 2." }, tc("write", { path: "workspace/dragons/chapter-002.md", content: CH2_CONTENT })],
+    [{ type: "think", content: "Write chapter 3 with the climax and resolution." }, { type: "text", content: "Chapter 3." }, tc("write", { path: "workspace/dragons/chapter-003.md", content: CH3_CONTENT })],
+    [{ type: "think", content: "Now create wiki entries." }, { type: "text", content: "Wiki character." }, tc("write", { path: "workspace/dragons/wiki/character/eryndor.md", content: WIKI_ERYNDOR })],
+    [tc("write", { path: "workspace/dragons/wiki/location/dragon-peak.md", content: WIKI_DRAGON_PEAK })],
+    [tc("write", { path: "workspace/dragons/wiki/faction/emerald-claw.md", content: WIKI_EMERALD_CLAW })],
+    [{ type: "text", content: "Done! All chapters and wiki entries created." }],
+    [{ type: "text", content: "Created _plan.md, chapter-001.md, chapter-002.md, chapter-003.md, wiki/character/eryndor.md, wiki/location/dragon-peak.md, wiki/faction/emerald-claw.md." }],
   ]
+
+  const mockResponses = mockTurns.map(t => renderAssistantTurn(t))
 
   const model = EvalController.createMockModel(mockResponses)
   const envoy = await loadAgent("envoy")

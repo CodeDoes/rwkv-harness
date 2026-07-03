@@ -122,14 +122,36 @@ Grammar: `toolsToGbnfWithThink()` — allows think blocks, text, then tool call 
 root ::= (think-block? ws)? text? ws (call ws text? ws)?
 ```
 
+### Example / Template System (`src/agents/example-template.ts`)
+
+Examples are stored as `examples/*.jsonl` files, one JSON object per line with semantic types (no tags in content):
+
+| Type | Meaning | Rendered as |
+|------|---------|-------------|
+| `user` | User turn | `User: {content}` |
+| `think` | Assistant thinking | `<think>{content}</think>` |
+| `tool_call` | Tool invocation | `<tool_call>\n{content}\n</tool_call>` |
+| `tool_response` | Tool result | `User:\n<tool_response>\n{content}\n</tool_response>` |
+| `text` | Plain assistant output | `{content}` |
+
+Tags (`<think>`, `<tool_call>`, `<tool_response>`) are added by the **template**, not stored in data. This means changing tag format requires only a template change, not a data migration.
+
+**Templates** are registered formatters (`ExampleFormatter`) in a `Map<string, ExampleFormatter>`. Built-in:
+- `default` — renders with `<think>`, `<tool_call>`, `User:`, `Assistant:`
+- `no-think` — strips think blocks, same format otherwise
+
+**Validation**: `EvalController.validateExampleFormat()` renders examples through the current template and validates each assistant turn against the GBNF grammar rules (paired tags, valid tool JSON, no `<` in text content). This catches drift between examples, code, and grammar. Oracle eval checks `envoy example format valid (GBNF)` and `storyteller example format valid (GBNF)`.
+
+**Swapping**: Pass `template` param to `loadAgent(agentName, template)` or `renderExamples(agentName, template)`. Register new templates via `registerTemplate(name, fn)`.
+
 ### Format Configuration (`src/agents/loop.ts`)
 
 Two module-level constants control the inter-turn format:
 
 - **`SEP`** — blank-line indicator inserted between assistant output and tool response.
-  Normally `"\x00"` (null byte, in RWKV vocab). Changes the prompt format:
+  Normally `"\n\n"` (blank line). Changes the prompt format:
   No SEP: `\n\nUser:\n` / `\n\nAssistant:` (blank line separators)
-  With SEP: `\x00\nUser:\n` / `\x00\nAssistant:` (SEP replaces blank lines)
+  With SEP: `\x00\nUser:\n` / `\x00\nAssistant:` (SEP replaces blank lines, `\x00` is in RWKV vocab)
 
 - **`STOP_SEQ`** — generation stop sequences. First entry is primary stop.
   Default: `["</tool_call>", "\n\nUser:", "\x03"]`
