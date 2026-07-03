@@ -1,6 +1,7 @@
 import * as fs from "fs"
 import * as path from "path"
 import { fileURLToPath } from "url"
+import { createRequire } from "module"
 import type { ToolResult } from "../types.ts"
 
 /// ── Entry type (semantic, no tags in content) ──
@@ -167,6 +168,27 @@ function resolveEntry(entry: ExampleEntry, baseDir: string): ExampleEntry {
 export function loadExampleEntries(agentName: string): ExampleEntry[] {
   const examplesDir = path.join(AGENTS_DIR, agentName, "examples")
   const entries: ExampleEntry[] = []
+
+  // 1. Try a TypeScript loader module (e.g. examples.ts exporting
+  //    loadStorytellerExamples()). resolved synchronously via createRequire.
+  try {
+    const tsLoader = path.join(examplesDir, "examples.ts")
+    if (fs.existsSync(tsLoader)) {
+      const _require = createRequire(import.meta.url)
+      const mod = _require(tsLoader) as Record<string, unknown>
+      const loaderName = Object.keys(mod).find(k =>
+        /^load.*Examples$/.test(k)
+      )
+      if (loaderName && typeof mod[loaderName] === "function") {
+        return (mod[loaderName] as CallableFunction)() as ExampleEntry[]
+      }
+    }
+  } catch {
+    // No TS loader found or failed; fall through to .jsonl search
+  }
+
+  // 2. Fall back to individual .jsonl files (legacy mode, still used by
+  //    other agents such as the envoy).
   try {
     const files = fs.readdirSync(examplesDir).filter(f => f.endsWith(".jsonl")).sort()
     for (const file of files) {
