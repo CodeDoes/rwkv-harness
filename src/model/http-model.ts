@@ -22,6 +22,10 @@ export class HttpModel implements Model {
 
   async dispose(): Promise<void> { /* nothing to dispose */ }
 
+  async modelInfo(): Promise<{ model: string; stateSize: number }> {
+    return this.rpc.modelInfo()
+  }
+
   tokenize(_text: string): number[] { return [] }
   detokenize(_tokens: number[]): string { return "" }
 

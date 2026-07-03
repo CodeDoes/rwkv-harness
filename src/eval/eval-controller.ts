@@ -332,7 +332,7 @@ export class EvalController {
 
   static resolveModelPath(args: string[]): string {
     return args.find((a) => a.startsWith("--model="))?.split("=")[1]
-      || path.join(PROJECT_ROOT, "models/rwkv7-g1g-2.9b-20260526-ctx8192-converted.st")
+      || path.join(PROJECT_ROOT, "models/rwkv7-g1h_preview4673-2.9b-20260701-ctx8192.st")
   }
 
   static resolveGpu(args: string[]): "vulkan" | "cuda" | "auto" {

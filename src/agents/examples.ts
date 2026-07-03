@@ -1,1 +1,1 @@
-export { loadExampleEntries, renderExamples, loadDefaultExampleEntries, renderDefaultExamples, renderAssistantTurn } from "./example-template.ts"
+export { getTemplate, loadExampleEntries, renderExamples, loadDefaultExampleEntries, renderDefaultExamples, renderAssistantTurn } from "./example-template.ts"

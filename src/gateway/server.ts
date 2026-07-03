@@ -21,7 +21,7 @@ export class GatewayServer {
   private ready: Promise<void>
   private resolveReady!: () => void
 
-  constructor(host: SessionHost, webappDir?: string) {
+  constructor(host: SessionHost, webappDir?: string, modelPath?: string) {
     this.host = host
     this.ready = new Promise((resolve) => { this.resolveReady = resolve })
 
@@ -40,7 +40,7 @@ export class GatewayServer {
     this.server = http.createServer(this.app)
     this.wss = new WebSocketServer({ server: this.server })
 
-    const rpcHandler = createOpenAPIHandler(this.host._model, this.host)
+    const rpcHandler = createOpenAPIHandler(this.host._model, this.host, modelPath)
     this.app.use("/rpc{/*path}", async (req, res, next) => {
       const { matched } = await rpcHandler.handle(req as any, res as any, { prefix: "/rpc", context: {} })
       if (!matched) next()

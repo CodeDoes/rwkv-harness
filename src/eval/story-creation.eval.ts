@@ -165,7 +165,6 @@ async function runLive(baseDir: string, args: string[]): Promise<boolean> {
   const modelPath = EvalController.resolveModelPath(args)
   const gpu = EvalController.resolveGpu(args)
 
-  console.error(`Model: ${path.basename(modelPath)}`)
   console.error(`GPU: ${gpu}`)
   console.error(`Workspace: ${baseDir}`)
 
@@ -177,7 +176,15 @@ async function runLive(baseDir: string, args: string[]): Promise<boolean> {
   const originalCwd = process.cwd()
   process.chdir(baseDir)
 
-  const trace = new TraceWriter("live").open({ mode: "live", model: path.basename(modelPath), gpu, workspace: baseDir })
+  // Fetch actual model name from gateway
+  let modelName = path.basename(modelPath)
+  try {
+    const info = await model.modelInfo?.()
+    if (info?.model) modelName = info.model
+  } catch {}
+  console.error(`Model: ${modelName}`)
+
+  const trace = new TraceWriter("live").open({ mode: "live", model: modelName, gpu, workspace: baseDir })
 
   const envoy = await loadAgent("envoy")
   const storyteller = await loadAgent("storyteller")

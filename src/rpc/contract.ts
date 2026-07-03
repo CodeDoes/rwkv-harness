@@ -65,6 +65,10 @@ export const contract = oc.router({
     .route({ method: "GET", path: "/health" })
     .output(z.object({ status: z.literal("ok"), stateSize: z.number() })),
 
+  modelInfo: oc
+    .route({ method: "GET", path: "/model-info" })
+    .output(z.object({ model: z.string(), stateSize: z.number() })),
+
   process: oc
     .route({ method: "POST", path: "/process" })
     .input(ProcessOpts)

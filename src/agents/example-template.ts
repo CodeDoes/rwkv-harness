@@ -1,6 +1,7 @@
 import * as fs from "fs"
 import * as path from "path"
 import { fileURLToPath } from "url"
+import type { ToolResult } from "../types.ts"
 
 /// ── Entry type (semantic, no tags in content) ──
 
@@ -11,9 +12,20 @@ export interface ExampleEntry {
   content: string
 }
 
-/// ── Template system ──
+/// ── Template: an object with individual format methods ──
 
-export type ExampleFormatter = (entries: ExampleEntry[]) => string
+export interface ExampleFormatter {
+  /** Render full conversation from entries. */
+  format(entries: ExampleEntry[]): string
+  /** Render a tool result block (XML payload only). */
+  formatToolResponse(result: ToolResult): string
+  /** Render user text input with role prefix. */
+  formatUserInput(input: string): string
+  /** Role marker for the assistant turn (no separator). e.g. "Assistant:" */
+  formatAssistantRole(): string
+  /** Role marker before tool response block. e.g. "User:\n" */
+  formatToolResponseRole(): string
+}
 
 const templates = new Map<string, ExampleFormatter>()
 
@@ -27,61 +39,90 @@ export function getTemplate(name: string): ExampleFormatter {
   return t
 }
 
+function indentContent(content: string): string {
+  return content.replace(/\n/g, "\n\t")
+}
+
 /// ── Default template ──
 
-registerTemplate("default", (entries) => {
-  const segments: string[] = []
-  let i = 0
-  while (i < entries.length) {
-    const e = entries[i]
-    if (e.type === "user") {
-      segments.push(`User: ${e.content}`)
-      i++
-    } else if (e.type === "tool_response") {
-      segments.push(`User:\n<tool_response>\n${e.content}\n</tool_response>`)
-      i++
-    } else {
-      // Group consecutive think/tool_call/text into one assistant turn
-      let assistantText = ""
-      let first = true
-      while (i < entries.length && !["user", "tool_response"].includes(entries[i].type)) {
-        const cur = entries[i]
-        const sep = first ? "" : "\n"
-        switch (cur.type) {
-          case "think":
-            assistantText += `${sep}<think>${cur.content}</think>`
-            break
-          case "tool_call":
-            assistantText += `${sep}<tool_call>\n${cur.content}\n</tool_call>`
-            break
-          case "text":
-            assistantText += `${sep}${cur.content}`
-            break
-        }
-        first = false
+registerTemplate("default", {
+  format(entries) {
+    const segments: string[] = []
+    let i = 0
+    while (i < entries.length) {
+      const e = entries[i]
+      if (e.type === "user") {
+        segments.push(`User: ${e.content}`)
         i++
+      } else if (e.type === "tool_response") {
+        segments.push(`User:\n<tool_response>\n\t${indentContent(e.content)}\n</tool_response>`)
+        i++
+      } else {
+        let assistantText = ""
+        let first = true
+        while (i < entries.length && !["user", "tool_response"].includes(entries[i].type)) {
+          const cur = entries[i]
+          const sep = first ? "" : "\n"
+          switch (cur.type) {
+            case "think":
+              assistantText += `${sep}<think>\n\t${indentContent(cur.content)}\n</think>`
+              break
+            case "tool_call":
+              assistantText += `${sep}<tool_call>\n\t${indentContent(cur.content)}\n</tool_call>`
+              break
+            case "text":
+              assistantText += `${sep}\t${indentContent(cur.content)}`
+              break
+          }
+          first = false
+          i++
+        }
+        segments.push(`Assistant:\n${assistantText}`)
       }
-      segments.push(`Assistant:\n${assistantText}`)
     }
-  }
-  return segments.join("\n\n")
+    return segments.join("\n\n")
+  },
+
+  formatToolResponse(result) {
+    const payload = result.success && !result.error
+      ? { name: result.name, result: result.data ?? { success: true } }
+      : { name: result.name, result: { success: false, error: result.error } }
+    const body = JSON.stringify(payload)
+    const truncated = body.length > 2000 ? body.slice(0, 2000) + "..." : body
+    return `<tool_response>\n\t${truncated}\n</tool_response>`
+  },
+
+  formatUserInput(input) {
+    return `User: ${input}`
+  },
+
+  formatAssistantRole() {
+    return "Assistant:"
+  },
+
+  formatToolResponseRole() {
+    return "User:\n"
+  },
 })
 
-/// ── No-think template (strips think blocks) ──
+/// ── No-think template ──
 
-registerTemplate("no-think", (entries) => {
-  const filtered = entries.filter(e => e.type !== "think")
-  return getTemplate("default")(filtered)
+registerTemplate("no-think", {
+  format(entries) {
+    const filtered = entries.filter(e => e.type !== "think")
+    return getTemplate("default").format(filtered)
+  },
+  formatToolResponse: getTemplate("default").formatToolResponse,
+  formatUserInput: getTemplate("default").formatUserInput,
+  formatAssistantRole: getTemplate("default").formatAssistantRole,
+  formatToolResponseRole: getTemplate("default").formatToolResponseRole,
 })
 
 /// ── Render a single assistant turn (for mock responses) ──
-/// Produces content without "Assistant:" prefix.
-/// Filters to think/tool_call/text entries only.
 
 export function renderAssistantTurn(entries: ExampleEntry[], templateName = "default"): string {
   const filtered = entries.filter(e => e.type === "think" || e.type === "tool_call" || e.type === "text")
-  const rendered = getTemplate(templateName)(filtered)
-  // Remove the leading "Assistant: " prefix added by the conversation template
+  const rendered = getTemplate(templateName).format(filtered)
   return rendered.replace(/^Assistant:\s*/, "")
 }
 
@@ -90,18 +131,53 @@ export function renderAssistantTurn(entries: ExampleEntry[], templateName = "def
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const AGENTS_DIR = path.resolve(__dirname, ".")
 
+function resolveAtPaths(value: unknown, baseDir: string): unknown {
+  if (typeof value === "string") {
+    if (value.startsWith("@")) {
+      const refPath = path.resolve(baseDir, value.slice(1))
+      try {
+        return fs.readFileSync(refPath, "utf-8")
+      } catch {
+        throw new Error(`@ref not found: ${refPath}`)
+      }
+    }
+    return value
+  }
+  if (Array.isArray(value)) return value.map(v => resolveAtPaths(v, baseDir))
+  if (value && typeof value === "object") {
+    const obj: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      obj[k] = resolveAtPaths(v, baseDir)
+    }
+    return obj
+  }
+  return value
+}
+
+function resolveEntry(entry: ExampleEntry, baseDir: string): ExampleEntry {
+  const content = entry.content
+  if (content.startsWith("{")) {
+    const parsed = JSON.parse(content)
+    const resolved = resolveAtPaths(parsed, baseDir)
+    return { ...entry, content: JSON.stringify(resolved) }
+  }
+  return { ...entry, content: resolveAtPaths(content, baseDir) as string }
+}
+
 export function loadExampleEntries(agentName: string): ExampleEntry[] {
   const examplesDir = path.join(AGENTS_DIR, agentName, "examples")
   const entries: ExampleEntry[] = []
   try {
     const files = fs.readdirSync(examplesDir).filter(f => f.endsWith(".jsonl")).sort()
     for (const file of files) {
-      const lines = fs.readFileSync(path.join(examplesDir, file), "utf-8").trim().split("\n")
+      const filePath = path.join(examplesDir, file)
+      const baseDir = path.dirname(filePath)
+      const lines = fs.readFileSync(filePath, "utf-8").trim().split("\n")
       for (const line of lines) {
         const trimmed = line.trim()
         if (!trimmed) continue
         const entry: ExampleEntry = JSON.parse(trimmed)
-        entries.push(entry)
+        entries.push(resolveEntry(entry, baseDir))
       }
     }
   } catch {}
@@ -112,7 +188,7 @@ export function renderExamples(agentName: string, templateName = "default"): str
   const entries = loadExampleEntries(agentName)
   if (entries.length === 0) return ""
   const fmt = getTemplate(templateName)
-  const rendered = fmt(entries)
+  const rendered = fmt.format(entries)
   return `\n\nExamples:\n\n${rendered}`
 }
 
@@ -132,5 +208,5 @@ export function renderDefaultExamples(templateName = "default"): string {
   const entries = loadDefaultExampleEntries()
   if (entries.length === 0) return ""
   const fmt = getTemplate(templateName)
-  return fmt(entries)
+  return fmt.format(entries)
 }

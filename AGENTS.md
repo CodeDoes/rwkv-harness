@@ -1,6 +1,6 @@
 # For AI Coding Agents
 
-Native RWKV harness — napi-rs Rust binding to web-rwkv 0.10. No node-llama-cpp. Default model: `models/rwkv7-g1g-2.9b-20260526-ctx8192-converted.st`
+Native RWKV harness — napi-rs Rust binding to web-rwkv 0.10. No node-llama-cpp. Default model: `models/rwkv7-g1h_preview4673-2.9b-20260701-ctx8192.st`
 
 ## Commands
 
@@ -38,7 +38,7 @@ Only native backend via `src/cli.ts:createModel()`:
 
 Auto-connect: by default, CLI checks `http://127.0.0.1:3030/rpc/health`. If gateway running, creates `HttpModel(engineUrl)` instead of loading model directly. Saves 4GB VRAM — no reload per invocation. Use `--no-gateway` to force direct native load.
 
-Default: `models/rwkv7-g1g-2.9b-20260526-ctx8192-converted.st`
+Default: `models/rwkv7-g1h_preview4673-2.9b-20260701-ctx8192.st`
 
 `--gpu=vulkan|cuda|auto` passed through to web-rwkv.
 

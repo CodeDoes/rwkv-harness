@@ -112,8 +112,8 @@ function paramGbnfRule(p: ToolParam): string {
 
 function gbnfToolCallSection(defs: ToolDef[]): { lines: string[]; callNames: string[] } {
   const lines: string[] = [
-    'prose-string ::= "\\"" ([^"\\\\] | "\\\\" .)* "\\""',
-    'string-value ::= "\\"" ([^"] | "\\\\" "\\"")* "\\""',
+    'prose-string ::= "\\"" ([^"\\\\\\n\\r] | "\\\\" .)* "\\""',
+    'string-value ::= "\\"" ([^"\\n\\r] | "\\\\" "\\"")* "\\""',
     'number-value ::= [0-9]+ ("." [0-9]+)?',
     'boolean-value ::= "true" | "false"',
   ]
@@ -127,15 +127,15 @@ function gbnfToolCallSection(defs: ToolDef[]): { lines: string[]; callNames: str
       `"\\"${p.name}\\"" ws ":" ws ${paramGbnfRule(p)}`
     ).join(` ws "," ws `)
     lines.push(`${safe}args ::= "\\"arguments\\"" ws ":" ws "{" ws ${params} ws "}"`)
-    lines.push(`${cn} ::= "<tool_call>" ws "{" ws ${safe}name ws "," ws ${safe}args ws "}" ws "</tool_call>"`)
+    lines.push(    `${cn} ::= "<tool_call>" "\n" "\t" "{" ws ${safe}name ws "," ws ${safe}args ws "}" "\n" "</tool_call>"`)
   }
   return { lines, callNames }
 }
 
 function gbnfRoot(defs: ToolDef[], rootRule: string): string {
   const shared = [
-    'think-block ::= "<think>" ([^<] | "<" [^/])* "</think>"',
-    'text ::= [^<]+',
+    'think-block ::= "<think>" "\n" "\t" [^<]* "\n" "</think>"',
+    'text ::= "\t" [^<]*',
     'ws ::= [ \\t\\n]*',
   ]
   const { lines, callNames } = gbnfToolCallSection(defs)
@@ -153,7 +153,7 @@ export function toolsToGbnf(defs?: ToolDef[]): string {
 
 export function toolsToGbnfWithThink(defs?: ToolDef[]): string {
   const S = "\x00"
-  return gbnfRoot(defs ?? toolDefs, `root ::= (think-block? ws)? text? ws (call ws text? ws)?`)
+  return gbnfRoot(defs ?? toolDefs, `root ::= ws? (think-block | text | call ws?)*`)
 }
 
 export function toolsToGbnfText(defs?: ToolDef[]): string {

@@ -4,7 +4,7 @@ import type { Model } from "../types.ts"
 import { SessionManager } from "../session/session.ts"
 import { GenerateOpts, DEFAULT_GEN_OPTS, GenerateCallbacks, ToolCall, ToolResult, ToolDef, ToolHandler } from "../types.ts"
 import { toolDefs as defaultToolDefs, toolHandlers as defaultHandlers, toolsToXml, toolsToGbnfWithThink } from "../tools/registry.ts"
-import { renderDefaultExamples } from "./examples.ts"
+import { getTemplate, renderDefaultExamples } from "./examples.ts"
 
 /**
  * SEP — blank-line indicator inserted between turns in the prompt.
@@ -75,17 +75,9 @@ export interface AgentLoopConfig {
   toolDefs?: ToolDef[]
   toolHandlers?: Record<string, ToolHandler>
   examples?: string
+  templateName?: string
   onToolCall?: (name: string, args: Record<string, unknown>) => void
   onToolResult?: (result: ToolResult) => void
-}
-
-export function formatToolResult(result: ToolResult): string {
-  const payload = result.success && !result.error
-    ? { name: result.name, result: result.data ?? { success: true } }
-    : { name: result.name, result: { success: false, error: result.error } }
-  const body = JSON.stringify(payload)
-  const truncated = body.length > 2000 ? body.slice(0, 2000) + "..." : body
-  return `<tool_response>\n${truncated}\n</tool_response>`
 }
 
 export class AgentLoop {
@@ -96,16 +88,19 @@ export class AgentLoop {
   private sessionId: string
   private initPromise: Promise<void>
   private lastCallSignatures: string[] = []
+  private template: ReturnType<typeof getTemplate>
 
   constructor(model: Model, session: SessionManager, maxDepth = 5, config?: AgentLoopConfig) {
     this.model = model
     this.session = session
     this.maxDepth = maxDepth
+    this.template = getTemplate(config?.templateName ?? "default")
     this.config = {
       systemPrompt: config?.systemPrompt ?? DEFAULT_SYSTEM_PREAMBLE,
       toolDefs: config?.toolDefs ?? defaultToolDefs,
       toolHandlers: config?.toolHandlers ?? defaultHandlers,
       examples: config?.examples ?? DEFAULT_EXAMPLES,
+      templateName: config?.templateName ?? "default",
       onToolCall: config?.onToolCall ?? (() => {}),
       onToolResult: config?.onToolResult ?? (() => {}),
     }
@@ -130,7 +125,7 @@ export class AgentLoop {
 
     const history = this.session.buildPrompt(this.buildSystemPrompt(), true)
     const thinkSuffix = userInput.includes("(think") ? "" : " (think a little)"
-    let fullPrompt = clean(history + "User: " + userInput + thinkSuffix + "\n\nAssistant:")
+    let fullPrompt = clean(history + this.template.formatUserInput(userInput + thinkSuffix) + SEP + this.template.formatAssistantRole())
     let finalText = ""
     let depth = 0
 
@@ -180,17 +175,18 @@ export class AgentLoop {
 
         if (this.isRepeatedLoop(call, depth)) {
           const msg = "You called " + call.name + " with the same path " + depth + " times. Try a different approach — use write to create a .md file."
-          resultsBlock += `<tool_response>\n{"name":"${call.name}","result":{"success":false,"error":"${msg}"}}\n</tool_response>\n`
+          const errorResult: ToolResult = { name: call.name, success: false, data: null, error: msg }
+          resultsBlock += this.template.formatToolResponse(errorResult) + "\n"
           continue
         }
 
         const result = await this.execTool(call)
         this.config.onToolResult?.(result)
-        resultsBlock += this.formatToolResult(result) + "\n"
+        resultsBlock += this.template.formatToolResponse(result) + "\n"
       }
       // Only send delta — state already has previous prompt + generated tokens baked in.
       // Re-sending old text double-counts in the RNN state and corrupts it.
-      fullPrompt = SEP + "User:\n" + resultsBlock.trim() + "\n\nAssistant:"
+      fullPrompt = SEP + this.template.formatToolResponseRole() + resultsBlock.trim() + SEP + this.template.formatAssistantRole()
       await this.session.save()
       depth++
     }
@@ -319,10 +315,6 @@ export class AgentLoop {
       const msg = e instanceof Error ? e.message : String(e)
       return { name: call.name, success: false, data: null, error: msg }
     }
-  }
-
-  formatToolResult(result: ToolResult): string {
-    return formatToolResult(result)
   }
 
   cleanOutput(text: string): string {

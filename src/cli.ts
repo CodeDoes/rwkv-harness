@@ -25,7 +25,7 @@ const command = args[0]
 const noGateway = args.includes("--no-gateway")
 const gatewayAutoPort = 3030
 const modelPath = args.find((a) => a.startsWith("--model="))?.split("=")[1]
-  || path.join(PROJECT_ROOT, "models/rwkv7-g1g-2.9b-20260526-ctx8192-converted.st")
+  || path.join(PROJECT_ROOT, "models/rwkv7-g1h_preview4673-2.9b-20260701-ctx8192.st")
 const story = args.find((a) => a.startsWith("--story="))?.split("=")[1] || "default"
 const gpuArg = (args.find((a) => a.startsWith("--gpu="))?.split("=")[1] || "vulkan") as "vulkan" | "cuda" | "auto"
 const loraRaw = args.find((a) => a.startsWith("--lora="))?.split("=")[1]
@@ -90,7 +90,7 @@ async function runGateway() {
 
   const model = await createModel(modelPath, gwStateDir)
   const host = new SessionHost(model, gwStateDir)
-  const server = new GatewayServer(host, WEBAPP_DIR)
+  const server = new GatewayServer(host, WEBAPP_DIR, modelPath)
 
   await server.start(gatewayPort)
   console.error(`  API:  http://0.0.0.0:${gatewayPort}`)

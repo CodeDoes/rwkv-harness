@@ -161,6 +161,7 @@ export interface Model {
   dispose(): Promise<void>
   tokenize(text: string): number[]
   detokenize(tokens: number[]): string
+  modelInfo?(): Promise<{ model: string; stateSize: number }>
   process(opts?: ProcessOpts): Promise<{ sessionId: string }>
   generate(req: GenerateRequest): Promise<GenerateResult>
   streamGenerate(req: StreamGenerateRequest): Promise<GenerateResult>
