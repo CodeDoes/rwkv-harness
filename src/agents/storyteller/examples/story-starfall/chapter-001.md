@@ -1,3 +1,7 @@
 # Chapter 1: The Falling Star
 
-Celeste adjusted her telescope and gasped. A streak of light was heading for the Whispering Woods. The impact shook the ground. A crystal the size of a house glowed at the crater's center.
+Celeste had been mapping the northern sky for eleven years when the star fell. She was alone at the high observatory that night — her assistant had taken the week off, the funding committee had cancelled the maintenance visit, and the generator was running on fumes. She was not in the best position to witness anything, which is precisely why the star seemed to aim for her clearing.
+
+She was adjusting the primary lens when the streak appeared — a white-hot line across the dark, descending far faster than any comet she'd ever plotted. She had time for three thoughts: *that's wrong*, *it's heading for the Whispering Woods*, and *I need to get down there before someone official tells me I can't*. She locked the dome, grabbed her field pack (compass, notebook, sealable sample cylinders, thermos of tea that was now lukewarm), and started down the mountain path at a pace that was respectful of the dark but not respectful of her own safety.
+
+The impact woke the Wolfs. The whole western ridge rang like a struck bell, and a column of dust rose so high it blotted out the stars by the time Celeste reached the clearing. At its centre was a crater, perhaps forty yards across and still glowing at the edges. Embedded in the glassified soil at its heart was a crystal — and "crystal" was the wrong word, she understood immediately, because no mineral she knew of pulsed with internal light the way this thing did, pulsing in a rhythm that matched her own pulse, and she did not know why she was certain of this.

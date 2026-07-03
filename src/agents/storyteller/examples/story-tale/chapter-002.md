@@ -1,3 +1,7 @@
 # Chapter 2: The Bond
 
-Kael brought water from the stream. "What is your name?" he asked. "Lyra," she said. "I am the last of my kind." Kael tended to her wounds. She grew stronger.
+Kael carried water from the stream in buckets, each trip taking longer than the last as his arms ached and the cold mountaintop air bit through his leather apron. The dragon drank in slow, careful gulps, her breathing steadying with each swallow. She told him, between sips, that her name was Lyra and that she was the last of a species that had once filled the skies above Emberhold like clouds.
+
+He sat beside her through the long mountain afternoons, watching the light change on the valley floor. She spoke of the old world — not the peace-time kingdom of the elders' stories, but the older world before that, when dragons had ruled the peaks and humans lived in the lowlands in quiet awe. "They didn't fear us," Lyra said. "They understood the difference between power and threat. That understanding was lost." Kael agreed, recognising the pattern already at work in his own village: fear of what was powerful, different, and not easily controlled.
+
+Three weeks in, Lyra showed him how to tend the worst of her wounds — the rends in her flank where the Ashen Council's ash-magic had burned through scale into flesh. Kael worked with the careful hands he'd developed over ten years at the forge, applying salves and wrapping linen bandages. On the evening of the fourth week, she grew strong enough to spread her wings for the first time since the attack. The wind rushed past Kael's face as they climbed above the ridge, and he shouted with something too large for joy.
