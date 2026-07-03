@@ -101,7 +101,7 @@ export class EvalController {
               process.stdout.write(t)
               storytellerOutput += t
             },
-          }, { temperature: 0.5 })
+          }, { temperature: 0.5, maxTokens: 2048 })
 
           const summaryPrompt = `\n\nUser: Briefly report what was accomplished in the workspace.\n\nAssistant:`
           this.traceWriter.write("user", summaryPrompt)
@@ -137,7 +137,7 @@ export class EvalController {
     const finalText = await agentLoop.run(userInput, {
       onRawOutput: (raw) => this.traceWriter.write("assistant", raw),
       onText: (t: string) => process.stdout.write(t),
-    }, { maxTokens: 300 })
+    }, { maxTokens: 500, temperature: 0.5 })
 
     const storyDir = this.findStoryDir(this.baseDir)
     return {

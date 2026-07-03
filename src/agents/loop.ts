@@ -24,14 +24,18 @@ function loadDefaultExamples(): string {
 }
 const DEFAULT_EXAMPLES = loadDefaultExamples()
 
-const TOOL_CALL_RE = /<tool_call>\s*(\{[\s\S]*?\})\s*<\/tool_call>/g
-
 function fixToolCallJson(raw: string): string {
   try { JSON.parse(raw); return raw } catch {}
 
   let result = ""
   let inString = false
   let escaped = false
+
+  const escapeMap: Record<string, string> = {
+    "\n": "\\n",
+    "\r": "\\r",
+    "\t": "\\t",
+  }
 
   for (let i = 0; i < raw.length; i++) {
     const ch = raw[i]
@@ -51,6 +55,8 @@ function fixToolCallJson(raw: string): string {
           result += '\\"'
         }
       }
+    } else if (inString && escapeMap[ch] !== undefined) {
+      result += escapeMap[ch]
     } else {
       result += ch
     }
@@ -83,6 +89,7 @@ export class AgentLoop {
   private config: Required<AgentLoopConfig>
   private sessionId: string
   private initPromise: Promise<void>
+  private lastCallSignatures: string[] = []
 
   constructor(model: Model, session: SessionManager, maxDepth = 5, config?: AgentLoopConfig) {
     this.model = model
@@ -158,6 +165,13 @@ export class AgentLoop {
       let resultsBlock = ""
       for (const call of allCalls) {
         this.config.onToolCall?.(call.name, call.args)
+
+        if (this.isRepeatedLoop(call, depth)) {
+          const msg = "You called " + call.name + " with the same path " + depth + " times. Try a different approach — use write to create a .md file."
+          resultsBlock += `<tool_response>\n{"name":"${call.name}","result":{"success":false,"error":"${msg}"}}\n</tool_response>\n`
+          continue
+        }
+
         const result = await this.execTool(call)
         this.config.onToolResult?.(result)
         resultsBlock += this.formatToolResult(result) + "\n"
@@ -196,21 +210,64 @@ export class AgentLoop {
     const errors: ToolCall[] = []
     const segments: string[] = []
     let lastIndex = 0
-    let match: RegExpExecArray | null
 
-    const re = new RegExp(TOOL_CALL_RE.source, "g")
-    while ((match = re.exec(text)) !== null) {
-      segments.push(text.slice(lastIndex, match.index))
-      lastIndex = re.lastIndex
+    const toolCallTag = /<tool_call>/g
+    let tagMatch: RegExpExecArray | null
+    while ((tagMatch = toolCallTag.exec(text)) !== null) {
+      const openPos = tagMatch.index
+      segments.push(text.slice(lastIndex, openPos))
+      const searchStart = tagMatch.index + tagMatch[0].length
+
+      const closeTag = text.indexOf("</tool_call>", searchStart)
+      if (closeTag === -1) {
+        lastIndex = openPos
+        break
+      }
+
+      const body = text.slice(searchStart, closeTag)
+      const braceStart = body.indexOf("{")
+      if (braceStart === -1) {
+        errors.push({ name: "__parse_error__", args: { raw: text.slice(openPos, closeTag + 12) } })
+        lastIndex = closeTag + 12
+        continue
+      }
+
+      let depth = 0
+      let inStr = false
+      let escaped = false
+      let matchEnd = -1
+      for (let i = braceStart; i < body.length; i++) {
+        const ch = body[i]
+        if (escaped) { escaped = false; continue }
+        if (ch === "\\" && inStr) { escaped = true; continue }
+        if (ch === '"') { inStr = !inStr; continue }
+        if (!inStr) {
+          if (ch === "{") depth++
+          else if (ch === "}") {
+            depth--
+            if (depth === 0) { matchEnd = i + 1; break }
+          }
+        }
+      }
+
+      if (matchEnd === -1) {
+        errors.push({ name: "__parse_error__", args: { raw: text.slice(openPos, closeTag + 12) } })
+        lastIndex = closeTag + 12
+        continue
+      }
+
+      const jsonRaw = body.slice(braceStart, matchEnd)
+      lastIndex = closeTag + 12
       try {
-        const json = fixToolCallJson(match[1])
+        const json = fixToolCallJson(jsonRaw)
         const parsed = JSON.parse(json)
         if (!parsed.name || typeof parsed.name !== "string") throw new Error("missing name")
         const args = parsed.arguments ?? parsed.args
         if (!args || typeof args !== "object" || Array.isArray(args)) throw new Error("missing arguments object")
-        toolCalls.push({ name: parsed.name, args })
-      } catch {
-        errors.push({ name: "__parse_error__", args: { raw: match[0] } })
+        const call: ToolCall = { name: parsed.name, args }
+        toolCalls.push(call)
+      } catch (e) {
+        errors.push({ name: "__parse_error__", args: { raw: text.slice(openPos, lastIndex) } })
       }
     }
     segments.push(text.slice(lastIndex))
@@ -221,9 +278,21 @@ export class AgentLoop {
     return { text: cleaned, toolCalls, beforeFirst, errors }
   }
 
+  private isRepeatedLoop(call: ToolCall, depth: number): boolean {
+    if (depth < 2) return false
+    const sig = call.name + ":" + JSON.stringify(call.args)
+    this.lastCallSignatures.push(sig)
+    if (this.lastCallSignatures.length > 10) this.lastCallSignatures.shift()
+    let count = 0
+    for (const s of this.lastCallSignatures) {
+      if (s === sig) count++
+    }
+    return count >= 3
+  }
+
   async execTool(call: ToolCall): Promise<ToolResult> {
     if (call.name === "__parse_error__") {
-      return { name: "__parse_error__", success: false, data: null, error: "Parse error: tool call JSON was malformed. Use {\"name\": \"...\", \"args\": {...}} inside <tool_call> tags. Avoid unescaped quotes in string values — use \\\" instead." }
+      return { name: "__parse_error__", success: false, data: null, error: "Parse error: tool call JSON was malformed. Use {\"name\": \"...\", \"args\": {...}} inside <tool_call> tags. Avoid real newlines in string values — use \\n instead." }
     }
     const handler = this.config.toolHandlers[call.name]
     if (!handler) {
