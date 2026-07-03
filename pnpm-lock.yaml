@@ -216,6 +216,9 @@ importers:
       '@orpc/openapi':
         specifier: ^1.14.6
         version: 1.14.6(ws@8.21.0)
+      '@orpc/openapi-client':
+        specifier: ^1.14.6
+        version: 1.14.6
       '@orpc/server':
         specifier: ^1.14.6
         version: 1.14.6(ws@8.21.0)
