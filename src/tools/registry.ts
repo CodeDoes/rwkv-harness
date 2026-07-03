@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { ToolDef, ToolHandler, ToolParam } from "../types.ts"
-import { buildRootGrammar } from "./zod-to-gbnf.ts"
+import { buildRootGrammar } from "./utils/zod-to-gbnf.ts"
 import file_read from "./read.ts"
 import file_write from "./write.ts"
 import file_edit from "./edit.ts"

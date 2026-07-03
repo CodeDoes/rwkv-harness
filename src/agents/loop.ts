@@ -5,20 +5,12 @@ import { SessionManager } from "../session/session.ts"
 import { GenerateOpts, DEFAULT_GEN_OPTS, GenerateCallbacks, ToolCall, ToolResult, ToolDef, ToolHandler } from "../types.ts"
 import { toolDefs as defaultToolDefs, toolHandlers as defaultHandlers, toolsToXml, toolsToGbnfWithThink } from "../tools/registry.ts"
 import { getTemplate, renderDefaultExamples } from "./examples.ts"
-
-/**
- * SEP — blank-line indicator inserted between turns in the prompt.
- * RWKV vocab includes \x00 so it tokenizes cleanly. Replaces empty lines
- * that would otherwise separate Assistant output from User tool responses.
- *
- * STOP_SEQ — generation stops when any of these strings appear.
- * Primary stop is </tool_call>. \n\n is the universal "next turn" indicator
- * (User: or Assistant:).
- *
- * To experiment: change SEP and/or add/remove items from STOP_SEQ.
- */
-const SEP = "\n\n"
-const STOP_SEQ = ["</tool_call>", "\n\nUser:", "\x03"]
+import {
+  getFormatConfig,
+  renderToolResponseBlock,
+  formatToolResponseRole,
+  formatAssistantRole,
+} from "./format-config.ts"
 
 function clean(txt: string): string {
   return txt.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim()
@@ -123,9 +115,15 @@ export class AgentLoop {
 
     await this.initPromise
 
+    const cfg = getFormatConfig()
     const history = this.session.buildPrompt(this.buildSystemPrompt(), true)
     const thinkSuffix = userInput.includes("(think") ? "" : " (think a little)"
-    let fullPrompt = clean(history + this.template.formatUserInput(userInput + thinkSuffix) + SEP + this.template.formatAssistantRole())
+    let fullPrompt = clean(
+      history +
+        this.template.formatUserInput(userInput + thinkSuffix) +
+        cfg.sep +
+        this.template.formatAssistantRole()
+    )
     let finalText = ""
     let depth = 0
 
@@ -138,7 +136,7 @@ export class AgentLoop {
         opts: {
           ...DEFAULT_GEN_OPTS,
           temperature: 0.7,
-          stopSequences: STOP_SEQ,
+          stopSequences: [...cfg.stops.list],
           grammar: toolsToGbnfWithThink(this.config.toolDefs),
           ...opts,
         },
@@ -154,13 +152,26 @@ export class AgentLoop {
       const endedWithUser = !endedWithToolCall && (raw.includes("\n\nUser:") || raw.endsWith("\x03"))
       callbacks?.onRawOutput?.(raw)
 
+      // Empty stream guard: the model emitted no parseable tokens. The grammar
+      // and stop sequences should always admit at least one token of output,
+      // so an empty `raw` is a model failure (likely stale state, corrupted
+      // RNN context, or a stop sequence that fires before any token). Surface
+      // the warning so the trace tells us what happened — and so the eval
+      // never silently reports "assistant: <blank>" again.
+      if (raw.trim().length === 0) {
+        const msg = `[agent-loop] WARN: empty generation at depth ${depth} (stopReason=${genRes.stopReason})`
+        callbacks?.onText?.(msg)
+        console.warn(msg)
+        break
+      }
+
       const { text, toolCalls, errors } = this.parseToolCalls(raw)
       callbacks?.onText?.(text)
       finalText += text
 
       const allCalls = [...toolCalls, ...errors]
       if (allCalls.length === 0) {
-        if (endedWithUser || raw.includes(SEP)) break
+        if (endedWithUser || raw.includes(cfg.sep)) break
         break
       }
 
@@ -176,17 +187,26 @@ export class AgentLoop {
         if (this.isRepeatedLoop(call, depth)) {
           const msg = "You called " + call.name + " with the same path " + depth + " times. Try a different approach — use write to create a .md file."
           const errorResult: ToolResult = { name: call.name, success: false, data: null, error: msg }
-          resultsBlock += this.template.formatToolResponse(errorResult) + "\n"
+          resultsBlock += renderToolResponseBlock(errorResult) + "\n"
           continue
         }
 
         const result = await this.execTool(call)
         this.config.onToolResult?.(result)
-        resultsBlock += this.template.formatToolResponse(result) + "\n"
+        resultsBlock += renderToolResponseBlock(result) + "\n"
       }
       // Only send delta — state already has previous prompt + generated tokens baked in.
       // Re-sending old text double-counts in the RNN state and corrupts it.
-      fullPrompt = SEP + this.template.formatToolResponseRole() + resultsBlock.trim() + SEP + this.template.formatAssistantRole()
+      // In "block" placement, the tool-response is its own `User:` turn
+      // (`formatToolResponseRole() + resultsBlock + sep + formatAssistantRole()`).
+      // In "inline" placement the tool-response tag follows the assistant
+      // `</tool_call>` directly, so the follow-up is just `sep + Assistant:`.
+      if (cfg.toolResponse.placement === "inline") {
+        fullPrompt = cfg.sep + formatAssistantRole()
+      } else {
+        fullPrompt =
+          cfg.sep + formatToolResponseRole() + resultsBlock.trim() + cfg.sep + formatAssistantRole()
+      }
       await this.session.save()
       depth++
     }

@@ -95,17 +95,26 @@ export class EvalController {
             // Sub-agent tool responses live in the child's session log; not in
             // the master trace. The master trace sees only the parent (envoy)
             // inference flow.
-            onToolResult: () => {
+            onToolResult: (result) => {
               toolResponseCount++
+              this.traceWriter.writeSubagent("storyteller", "tool", JSON.stringify(result))
             },
           })
 
           // Capture the sub-agent's last assistant block's text — that becomes
           // the spawn_agent tool response, surfaced to the parent for its
-          // next inference turn.
+          // next inference turn. Mirror narrated assistant text into the
+          // master trace as a subagent segment so the eval can see what
+          // the child did end-to-end (item 14 in TODO.md).
           let lastAssistantText = ""
+          let subagentBlockCaptured = false
           const subResult = await subLoop.run(taskText, {
-            onRawOutput: () => {},
+            onRawOutput: (raw) => {
+              if (!subagentBlockCaptured) {
+                this.traceWriter.writeSubagent("storyteller", "assistant", raw)
+                subagentBlockCaptured = true
+              }
+            },
             onText: (t: string) => {
               storytellerOutput += t
               lastAssistantText = t

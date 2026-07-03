@@ -62,7 +62,7 @@ async function traceShapeHandTest() {
 }
 
 async function traceShapeAgentLoopTest() {
-  console.log("\n── 2. AgentLoop → TraceWriter (agent-level user/assistant) ──")
+  console.log("\n── 2. AgentLoop → TraceWriter (agent-level user/assistant/tool) ──")
 
   const tw = new TraceWriter("looptest")
   tw.open({ mode: "looptest" })
@@ -76,19 +76,26 @@ async function traceShapeAgentLoopTest() {
     `How can I help?`,
   ])
 
-  const loop = new AgentLoop(model, session, 5)
+  const loop = new AgentLoop(model, session, 5, {
+    onToolResult: (r) => tw.write("tool", JSON.stringify(r)),
+  })
 
+  let rawCaptured = 0
   tw.write("user", "hi there")
   await loop.run("hi there", {
-    onRawOutput: (r) => tw.write("assistant", r),
+    onRawOutput: (r) => { rawCaptured++; tw.write("assistant", r) },
     onText: () => {},
   })
 
   tw.close()
   const text = readTrace(tw.path)
 
+  // Content checks
   check("output 'Hello, friend!' present", text.includes("Hello, friend!"))
   check("output 'How can I help?' present", text.includes("How can I help?"))
+  // Valid-context checks (TODO #2): every <tool_call> MUST be followed by a tool response
+  check("onRawOutput fired at least 2x", rawCaptured >= 2)
+  check("tool response traced after <tool_call>", /<tool_call>[\s\S]*?\n\t<tool_response>/.test(text))
   check("no --- markers", countMatches(text, /^--- /gm) === 0)
   check("no '<|endoftext|>' literal", !text.includes("<|endoftext|>"))
 }
@@ -110,7 +117,9 @@ async function writeRoleInterleavingTest() {
     `All done.`,
   ])
 
-  const loop = new AgentLoop(model, session, 5)
+  const loop = new AgentLoop(model, session, 5, {
+    onToolResult: (r) => tw.write("tool", JSON.stringify(r)),
+  })
 
   tw.write("user", "test")
   await loop.run("test", {
@@ -126,6 +135,7 @@ async function writeRoleInterleavingTest() {
 
   check("user: header written", /\nuser:\n\ttest\b/.test(text))
   check("assistant headers >= 2", countMatches(text, /^assistant:$/gm) >= 2)
+  check("tool response emitted between assistant turns", /\nassistant:[^]*?<tool_call>[\s\S]*?\nassistant:[^]*?tool/.test(text) || countMatches(text, /^tool:$/gm) >= 1)
   check("onRawOutput fired once per round (>=2)", order.length >= 2)
   check("no --- markers", countMatches(text, /^--- /gm) === 0)
 }

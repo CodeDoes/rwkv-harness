@@ -57,7 +57,7 @@ Default: `models/rwkv7-g1h_preview4673-2.9b-20260701-ctx8192.st`
 | `src/tools/registry.ts` | Tool defs + handlers + helpers: `toolsToXml()`, `toolsToGbnf()`, `toolsToGbnfWithThink()`, `toolsToGbnfZod()` |
 | `src/tools/write.ts` | Auto-adds `.md` extension if path has no file extension |
 | `src/tools/*.ts` | Shared tool implementations (read, write, edit, ls, mkdir, grep, find) |
-| `src/tools/zod-to-gbnf.ts` | Zod→GBNF pipeline (zero deps) |
+| `src/tools/utils/zod-to-gbnf.ts` | Zod→GBNF pipeline (zero deps) |
 | `src/agents/loop.ts` | Agent loop. Uses `toolsToGbnfWithThink()` grammar (root allows `(think-block? ws)? text? ws (call ws text? ws)?`) |
 | `src/agents/storyteller/` | Story generation agent. No `mkdir` tool (write auto-creates dirs) |
 | `src/agents/storyteller/examples/` | State-tune examples with `\x00` blank-line indicator between turns |

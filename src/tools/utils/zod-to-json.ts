@@ -42,6 +42,5 @@ export function zodToJson(schema: z.ZodTypeAny): JsonSchema {
     return zodToJson(schema.unwrap() as z.ZodTypeAny)
   }
 
-  // Fallback
   return { type: "string" }
 }

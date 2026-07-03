@@ -1,6 +1,7 @@
 import * as fs from "fs"
 import * as path from "path"
 import { fileURLToPath } from "url"
+import { getFormatConfig } from "../agents/format-config.ts"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const TRACES_DIR = path.resolve(__dirname, "..", "eval", ".traces")
@@ -88,6 +89,32 @@ export class TraceWriter {
     }
 
     if (role !== "meta") this.emit("")
+  }
+
+  /**
+   * Emit a subagent trace block, wrapped or unwrapped per format-config.
+   *
+   *   <subagent name="X">
+   *   assistant:
+   *   	<content>
+   *   </subagent>
+   *
+   * Used by EvalController to fold the narrated transcript of a sub-agent
+   * (e.g. the storyteller) into the master trace without leaking the
+   * parent-inference formatting onto the child.
+   */
+  writeSubagent(name: string, role: TraceRole, content: string) {
+    if (role === "state-tune" || role === "meta") return
+    if (this.lineOpen) this.endLine()
+
+    const wrap = getFormatConfig().subagentWrap
+    if (wrap === "xml") {
+      this.emit(`<subagent name="${name}">`)
+    }
+    this.write(role, content)
+    if (wrap === "xml") {
+      this.emit(`</subagent>`)
+    }
   }
 
   verification(checks: { name: string; pass: boolean }[]) {
