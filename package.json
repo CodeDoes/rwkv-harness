@@ -37,6 +37,10 @@
   },
   "type": "module",
   "dependencies": {
+    "@orpc/client": "^1.14.6",
+    "@orpc/contract": "^1.14.6",
+    "@orpc/server": "^1.14.6",
+    "@orpc/zod": "^1.14.6",
     "express": "^5.2.1",
     "filesniffer": "^1.0.3",
     "simple-grep": "^0.0.1",

@@ -134,6 +134,45 @@ WS broadcasts: `token`, `user_message`, `done`, `session_*`
 - `token_strings` precomputed from `tokenizer.token_index_to_bytes()` (lossy UTF-8 conversion) — rebuilt on init
 - Grammar identifier constraint `[a-zA-Z][a-zA-Z0-9]*` from schoolmarm parser — tool rules use names like `callread`, `callwrite`
 
+## oRPC (implemented)
+
+[oRPC](https://orpc.dev) replaces all ad-hoc HTTP endpoints. A single `src/rpc/contract.ts` defines all procedures with Zod schemas. Server implements the contract, client gets perfect types without manual fetch wiring.
+
+### Files
+
+| Path | Role |
+|------|------|
+| `src/rpc/contract.ts` | Shared procedure defs (Zod schemas for input/output), `oc.router({...})` |
+| `src/rpc/server.ts` | `implement(contract)` → `RPCHandler` mounted in `GatewayServer` at `/rpc` |
+| `src/rpc/client.ts` | `createORPCClient(new RPCLink(...))` typed as `ContractRouterClient<typeof contract>` |
+
+### Procedures
+
+All `Model` + `SessionHost` operations are single-sourced in `contract.ts`:
+
+| Namespace | Procedures |
+|-----------|-----------|
+| (root) | `process`, `generate`, `stream` (event iterator), `interrupt`, `evaluate`, `saveCheckpoint`, `loadCheckpoint` |
+| session | `listSessions`, `createSession`, `switchSession`, `deleteSession`, `getMessages`, `chat` |
+| `mose` | `createExpert`, `list`, `removeExpert`, `apply`, `segmentRoute` |
+| `lora` | `add`, `list`, `remove`, `activate`, `deactivate` |
+
+### Key Fixes
+
+- **Path alignment** — `HttpModel` calls `/rpc/process` etc. via typed client, not manually wired paths
+- **`blend`/`segments`** — passed through contract schemas, no longer silently dropped
+- **MoSE/LoRA** — `HttpModel` now calls real gateway endpoints instead of stubs
+- **Type safety** — `pnpm typecheck` catches any contract/handler mismatch immediately
+- **No manual `jsonReq`** — all fetch logic handled by `RPCLink`
+
+### Status
+
+- ✅ Contract defined in `contract.ts`
+- ✅ Server router in `server.ts`, mounted at `/rpc` in GatewayServer
+- ✅ Typed client in `client.ts`, used by `HttpModel`
+- ✅ Oracle eval 26/26, agent-loop 5/5, trace 20/20 pass
+- ⏳ Old ad-hoc GatewayServer endpoints still present for backward compat — can be removed once any WebSocket broadcast logic is moved to oRPC handlers
+
 ## Build Notes
 
 - **pnpm** required (v11.9.0), enforced via `devEngines` in package.json

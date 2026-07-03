@@ -1,27 +1,21 @@
 import type { Model, MoseBlendWeights, MoSEHandle, LoRAHandle, MoSEExpert, ProcessOpts, GenerateRequest, GenerateResult, StreamGenerateRequest } from "../types.ts"
 import { spawn } from "child_process"
+import { createRpcClient, type RpcClient } from "../rpc/client.ts"
 
 function trimSlash(s: string): string {
   return s.replace(/\/$/, "")
 }
 
-async function jsonReq<T>(url: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(url, {
-    ...init,
-    headers: { "content-type": "application/json", ...(init.headers ?? {}) },
-  })
-  if (!res.ok) throw new Error(`${init.method ?? "GET"} ${url}: ${res.status} ${await res.text()}`)
-  return (await res.json()) as T
-}
-
 export class HttpModel implements Model {
-  private readonly url: string
+  private readonly rpc: RpcClient
+  private readonly rpcUrl: string
   private _modelPath: string = ""
   private _loraPaths: string[] = []
   private _currentSlot: string = "default"
 
   constructor(url: string) {
-    this.url = trimSlash(url)
+    this.rpcUrl = `${trimSlash(url)}/rpc`
+    this.rpc = createRpcClient(this.rpcUrl)
   }
 
   async init(_gpu?: string, _loraPaths?: unknown): Promise<void> { /* stateless — no init needed */ }
@@ -39,103 +33,51 @@ export class HttpModel implements Model {
   private stateSlotName(name: string): string { return name }
 
   async process(opts: ProcessOpts = {}): Promise<{ sessionId: string }> {
-    const r = await jsonReq<{ sessionId: string }>(`${this.url}/process`, {
-      method: "POST",
-      body: JSON.stringify({ modelPath: this._modelPath, ...opts }),
-    })
-    return r
+    return this.rpc.process(opts)
   }
 
   async generate(req: GenerateRequest): Promise<GenerateResult> {
-    const r = await jsonReq<GenerateResult>(`${this.url}/generate`, {
-      method: "POST",
-      body: JSON.stringify({
-        sessionId: req.sessionId,
-        prompt: req.prompt,
-        opts: req.opts,
-        blend: req.blend,
-        segments: req.segments,
-      }),
+    return this.rpc.generate({
+      sessionId: req.sessionId,
+      prompt: req.prompt,
+      opts: req.opts,
+      blend: req.blend,
+      segments: req.segments,
     })
-    return r
   }
 
   async streamGenerate(req: StreamGenerateRequest): Promise<GenerateResult> {
-    const res = await fetch(`${this.url}/stream`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        sessionId: req.sessionId,
-        prompt: req.prompt,
-        opts: req.opts,
-        blend: req.blend,
-        segments: req.segments,
-      }),
+    const iter = await this.rpc.stream({
+      sessionId: req.sessionId,
+      prompt: req.prompt,
+      opts: req.opts,
+      blend: req.blend,
+      segments: req.segments,
     })
-    if (!res.ok || !res.body) throw new Error(`stream: ${res.status}`)
-    const reader = res.body.getReader()
-    const dec = new TextDecoder()
-    let buf = ""
-    let out = ""
-    let lastResult: GenerateResult | null = null
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += dec.decode(value, { stream: true })
-      const events = buf.split("\n\n")
-      buf = events.pop() ?? ""
-      for (const ev of events) {
-        const line = ev.split("\n").find((l) => l.startsWith("data:"))
-        if (!line) continue
-        const data = line.slice(5).trim()
-        try {
-          const msg = JSON.parse(data) as { type: string; text?: string; sessionId?: string; stopReason?: GenerateResult["stopReason"] }
-          if (msg.type === "token" && msg.text) {
-            out += msg.text
-            req.onToken?.(msg.text)
-          } else if (msg.type === "done" && msg.sessionId) {
-            lastResult = { sessionId: msg.sessionId, text: out, stopReason: msg.stopReason ?? "stop" }
-          } else if (msg.type === "error") {
-            throw new Error((msg as unknown as { error: string }).error ?? "stream error")
-          }
-        } catch (e) {
-          if (e instanceof Error && e.message !== "stream error") continue
-          throw e
-        }
-      }
+    let text = ""
+    for await (const event of iter) {
+      text += event.token
+      req.onToken?.(event.token)
     }
-    return lastResult ?? { sessionId: req.sessionId, text: out, stopReason: "stop" }
+    return { sessionId: req.sessionId, text, stopReason: "stop" }
   }
 
   async interrupt(sessionId: string): Promise<{ stopReason: "Interrupted" }> {
-    const r = await jsonReq<{ stopReason: "Interrupted" }>(`${this.url}/interrupt`, {
-      method: "POST",
-      body: JSON.stringify({ sessionId }),
-    })
-    return r
+    return this.rpc.interrupt({ sessionId })
   }
 
   async evaluate(text: string): Promise<void> {
-    await jsonReq(`${this.url}/v1/evaluate`, {
-      method: "POST",
-      body: JSON.stringify({ modelPath: this._modelPath, loraPaths: this._loraPaths, text }),
-    })
+    await this.rpc.evaluate({ text })
   }
 
   async saveCheckpoint(name: string): Promise<{ filePath: string; fileSize: number }> {
-    const r = await jsonReq<{ path: string; size: number }>(`${this.url}/v1/state/save`, {
-      method: "POST",
-      body: JSON.stringify({ modelPath: this._modelPath, loraPaths: this._loraPaths, slotName: this.stateSlotName(name) }),
-    })
+    const r = await this.rpc.saveCheckpoint({ slotName: this.stateSlotName(name) })
     return { filePath: r.path, fileSize: r.size }
   }
 
   async loadCheckpoint(name: string): Promise<void> {
     this._currentSlot = this.stateSlotName(name)
-    await jsonReq(`${this.url}/v1/state/load`, {
-      method: "POST",
-      body: JSON.stringify({ modelPath: this._modelPath, loraPaths: this._loraPaths, slotName: this.stateSlotName(name) }),
-    })
+    await this.rpc.loadCheckpoint({ slotName: this.stateSlotName(name) })
   }
 
   statePath(_name: string): string { return "" }
@@ -153,29 +95,47 @@ export class HttpModel implements Model {
   getStateSize(): number { return 0 }
 
   get mose(): MoSEHandle {
+    const rpc = this.rpc
     return {
-      async createExpert(_name: string, _text: string, _weight = 1.0): Promise<MoSEExpert> {
-        return { name: _name, stateFile: "", weight: _weight }
+      async createExpert(name: string, text: string, weight = 1.0): Promise<MoSEExpert> {
+        return rpc.mose.createExpert({ name, text, weight })
       },
       list: () => [],
       get: () => undefined,
-      async removeExpert() { return false },
+      async removeExpert(name: string) {
+        return rpc.mose.removeExpert({ name })
+      },
       setWeight: () => false,
       setWeights: () => { /* */ },
-      async apply(_weights?: MoseBlendWeights) { /* stateless — state managed per generate */ },
-      async segmentRoute(_segments: { text: string; blend: MoseBlendWeights }[]) { void _segments },
+      async apply(weights?: MoseBlendWeights) {
+        await rpc.mose.apply({ weights })
+      },
+      async segmentRoute(segments: { text: string; blend: MoseBlendWeights }[]) {
+        await rpc.mose.segmentRoute({ segments })
+      },
       async dispose() { /* */ },
     }
   }
 
   get loraMgr(): LoRAHandle {
+    const rpc = this.rpc
+    const rpcLora = this.rpc.lora
     return {
-      add(_name, _filePath, _scale = 1.0) { /* no-op, paths passed per-call */ },
-      remove(_name) { return false },
+      add(name, filePath, scale = 1.0) {
+        rpcLora.add({ name, filePath, scale })
+      },
+      remove(name) {
+        rpcLora.remove({ name })
+        return true
+      },
       list: () => [],
       getActive: () => [...this._loraPaths],
-      async activate(..._names: string[]) { void _names },
-      async deactivateAll() { /* */ },
+      async activate(...names: string[]) {
+        await rpcLora.activate({ adapters: names })
+      },
+      async deactivateAll() {
+        await rpcLora.deactivate(undefined)
+      },
     }
   }
 
