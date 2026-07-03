@@ -1,10 +1,10 @@
-import { readFileSync } from "fs"
 import { dirname, resolve } from "path"
 import { fileURLToPath } from "url"
 import type { Model } from "../types.ts"
 import { SessionManager } from "../session/session.ts"
 import { GenerateOpts, DEFAULT_GEN_OPTS, GenerateCallbacks, ToolCall, ToolResult, ToolDef, ToolHandler } from "../types.ts"
 import { toolDefs as defaultToolDefs, toolHandlers as defaultHandlers, toolsToXml, toolsToGbnfWithThink } from "../tools/registry.ts"
+import { renderDefaultExamples } from "./examples.ts"
 
 /**
  * SEP — blank-line indicator inserted between turns in the prompt.
@@ -28,15 +28,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const AGENTS_DIR = resolve(__dirname, "../agents")
 
 const DEFAULT_SYSTEM_PREAMBLE = `You can use tools to read and write files. Output tool calls inside <tool_call> tags.`
-
-function loadDefaultExamples(): string {
-  try {
-    return readFileSync(resolve(AGENTS_DIR, "default/examples.mdx"), "utf-8").trim()
-  } catch {
-    return ""
-  }
-}
-const DEFAULT_EXAMPLES = loadDefaultExamples()
+const DEFAULT_EXAMPLES = renderDefaultExamples()
 
 function fixToolCallJson(raw: string): string {
   try { JSON.parse(raw); return raw } catch {}

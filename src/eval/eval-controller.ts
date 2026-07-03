@@ -227,6 +227,63 @@ export class EvalController {
     }
   }
 
+  static validateExampleFormat(rendered: string, toolDefs: ToolDef[]): string[] {
+    const errors: string[] = []
+    // Split into turns by User: or end-of-string
+    const turnRe = /Assistant:\s*([\s\S]*?)(?=\n\nUser:|$)/g
+    let turnMatch: RegExpExecArray | null
+    while ((turnMatch = turnRe.exec(rendered)) !== null) {
+      const turn = turnMatch[1].trim()
+      if (!turn) continue
+      // Track position in the assistant turn
+      let pos = 0
+      // Optional think-block
+      const thinkRe = /^<think>([\s\S]*?)<\/think>/
+      const thinkMatch = turn.match(thinkRe)
+      if (thinkMatch) {
+        pos = thinkMatch[0].length
+      }
+      // Optional whitespace after think
+      const afterThink = turn.slice(pos).trimStart()
+      pos = turn.length - afterThink.length + (turn.length - pos - afterThink.length)
+      // text? (no < allowed) then optional tool_call then optional trailing text
+      const textBeforeCall = afterThink.match(/^[^<]*/)
+      if (textBeforeCall) pos = turn.length - afterThink.length + textBeforeCall[0].length
+      // Optional tool_call
+      const remaining = turn.slice(pos).trim()
+      if (remaining) {
+        const callRe = /^<tool_call>\s*(\{[\s\S]*?\})\s*<\/tool_call>/
+        const callMatch = remaining.match(callRe)
+        if (callMatch) {
+          // Validate the JSON
+          try {
+            const parsed = JSON.parse(callMatch[1])
+            const validNames = new Set(toolDefs.map(t => t.name))
+            if (typeof parsed.name !== "string" || !parsed.name) {
+              errors.push(`tool_call missing "name" in example turn: ${callMatch[1].slice(0, 60)}`)
+            } else if (!validNames.has(parsed.name as string)) {
+              errors.push(`invalid tool name "${parsed.name}" in example, valid: ${[...validNames].join(", ")}`)
+            }
+            const args = parsed.arguments ?? parsed.args
+            if (!args || typeof args !== "object" || Array.isArray(args)) {
+              errors.push(`tool_call "${parsed.name}" missing "arguments"/"args" in example`)
+            }
+          } catch {
+            errors.push(`unparseable JSON in tool_call in example: ${callMatch[1].slice(0, 60)}`)
+          }
+          // Check trailing text (must not contain <)
+          const afterCall = remaining.slice(callMatch[0].length).trim()
+          if (/<[^<]/.test(afterCall)) {
+            errors.push(`trailing text after tool_call contains illegal "<" in example turn: ${afterCall.slice(0, 40)}`)
+          }
+        } else {
+          errors.push(`unexpected content after text in assistant turn (expected tool_call): ${remaining.slice(0, 60)}`)
+        }
+      }
+    }
+    return errors
+  }
+
   static validateToolCallFormat(text: string, toolDefs: ToolDef[]): string[] {
     const errors: string[] = []
     const re = /<tool_call>\s*(\{[\s\S]*?\})\s*<\/tool_call>/g

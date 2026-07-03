@@ -1,0 +1,10 @@
+{"type":"user","content":"list files in /tmp"}
+{"type":"think","content":"Let me list the directory."}
+{"type":"tool_call","content":"{\"name\":\"ls\",\"arguments\":{\"path\":\"/tmp\"}}"}
+{"type":"tool_response","content":"{\"name\":\"ls\",\"result\":{\"success\":true,\"data\":[\"file1.txt\",\"file2.txt\"]}}"}
+{"type":"text","content":"Here are the files: file1.txt, file2.txt."}
+{"type":"user","content":"read file.txt"}
+{"type":"think","content":"I need to read the file."}
+{"type":"tool_call","content":"{\"name\":\"read\",\"arguments\":{\"path\":\"file.txt\"}}"}
+{"type":"tool_response","content":"{\"name\":\"read\",\"result\":{\"success\":true,\"data\":\"file contents here\"}}"}
+{"type":"text","content":"The file contains: file contents here."}

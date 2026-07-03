@@ -5,6 +5,7 @@ import * as os from "os"
 import { fileURLToPath } from "url"
 import { EvalController, type Check } from "./eval-controller.ts"
 import { loadAgent } from "../agents/agent-loader.ts"
+import { renderExamples } from "../agents/examples.ts"
 import type { ToolDef, Model } from "../types.ts"
 import { HttpModel } from "../model/http-model.ts"
 import { TraceWriter } from "./trace-writer.ts"
@@ -101,6 +102,12 @@ const trace = new TraceWriter("oracle").open({ mode: "oracle", baseDir })
   const envoyGrammarErr = await EvalController.validateToolGrammar(envoy.toolDefs)
   const stGrammarErr = await EvalController.validateToolGrammar(stToolDefs)
 
+  // Validate rendered examples against GBNF grammar
+  const envoyExampleText = renderExamples("envoy")
+  const stExampleText = renderExamples("storyteller")
+  const envoyExampleErr = EvalController.validateExampleFormat(envoyExampleText, envoy.toolDefs)
+  const stExampleErr = EvalController.validateExampleFormat(stExampleText, stToolDefs)
+
   const checks: Check[] = [
     { name: "workspace dir", pass: fs.existsSync("workspace") && fs.statSync("workspace").isDirectory() },
     { name: "story dir", pass: fs.existsSync("workspace/dragons") },
@@ -128,6 +135,8 @@ const trace = new TraceWriter("oracle").open({ mode: "oracle", baseDir })
     { name: "storyteller tool calls format valid", pass: stErrors.length === 0 },
     { name: "envoy grammar valid", pass: envoyGrammarErr === null },
     { name: "storyteller grammar valid", pass: stGrammarErr === null },
+    { name: "envoy example format valid (GBNF)", pass: envoyExampleErr.length === 0 },
+    { name: "storyteller example format valid (GBNF)", pass: stExampleErr.length === 0 },
     { name: "tool responses traced", pass: result.toolResponseCount >= 8 },
   ]
 
@@ -211,6 +220,9 @@ async function runLive(baseDir: string, args: string[]): Promise<boolean> {
     { name: "at least 1 tool call", pass: result.subToolCalls > 0 },
     { name: "storyteller tool call format valid", pass: EvalController.validateToolCallFormat(result.storytellerOutput, storyteller.toolDefs).length === 0 },
     { name: "tool responses traced", pass: result.toolResponseCount > 0 },
+    // Example format (GBNF validation)
+    { name: "envoy example format valid", pass: EvalController.validateExampleFormat(renderExamples("envoy"), envoy.toolDefs).length === 0 },
+    { name: "storyteller example format valid", pass: EvalController.validateExampleFormat(renderExamples("storyteller"), storyteller.toolDefs).length === 0 },
   ]
 
   const allPass = EvalController.reportVerification("Live Verification", checks, trace)

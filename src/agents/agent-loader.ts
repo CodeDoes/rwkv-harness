@@ -2,7 +2,7 @@ import * as fs from "fs"
 import * as path from "path"
 import { fileURLToPath } from "url"
 import type { ToolDef, ToolHandler } from "../types.ts"
-import { loadExamples } from "./examples.ts"
+import { renderExamples } from "./examples.ts"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const AGENTS_DIR = path.resolve(__dirname, ".")
@@ -15,7 +15,7 @@ export interface LoadedAgent {
   examples: string
 }
 
-export async function loadAgent(agentName: string): Promise<LoadedAgent> {
+export async function loadAgent(agentName: string, template = "default"): Promise<LoadedAgent> {
   const agentDir = path.join(AGENTS_DIR, agentName)
 
   const instructions = fs.readFileSync(
@@ -29,7 +29,7 @@ export async function loadAgent(agentName: string): Promise<LoadedAgent> {
   }
   const { toolDefs, toolHandlers } = toolsModule
 
-  const examples = loadExamples(agentName)
+  const examples = renderExamples(agentName, template)
 
   return {
     name: agentName,
