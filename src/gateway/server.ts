@@ -18,12 +18,21 @@ export class GatewayServer {
   private server: http.Server
   private wss: WebSocketServer
   private channels: Map<number, WebSocket> = new Map()
+  private ready: Promise<void>
+  private resolveReady!: () => void
 
   constructor(host: SessionHost, webappDir?: string) {
     this.host = host
+    this.ready = new Promise((resolve) => { this.resolveReady = resolve })
 
     this.app = express()
     this.app.use(express.json())
+
+    // Block non-health requests until model is ready
+    this.app.use((_req, res, next) => {
+      if (_req.path === "/health") { next(); return }
+      this.ready.then(() => next()).catch(() => next())
+    })
 
     const staticDir = webappDir || path.join(PROJECT_ROOT, "webapp")
     this.app.use(express.static(staticDir))
@@ -33,6 +42,11 @@ export class GatewayServer {
 
     this.setupRoutes()
     this.setupWebSocket()
+  }
+
+  /** Mark model as ready — queued requests will now proceed. */
+  markReady() {
+    this.resolveReady()
   }
 
   private setupRoutes() {
@@ -101,6 +115,41 @@ export class GatewayServer {
           onToken: (t) => { fullResult += t },
         })
         res.json({ result })
+      } catch (err: any) {
+        res.status(500).json({ error: err.message })
+      }
+    })
+
+    // ---- HttpModel protocol endpoints ----
+
+    this.app.post("/process", async (req, res) => {
+      try {
+        await this.ready
+        const { modelPath: _mp, systemPrompt, append, stateCheckpoint } = req.body
+        const { sessionId } = await this.host._model.process({ systemPrompt, append, stateCheckpoint })
+        res.json({ sessionId })
+      } catch (err: any) {
+        res.status(500).json({ error: err.message })
+      }
+    })
+
+    this.app.post("/generate", async (req, res) => {
+      try {
+        await this.ready
+        const { sessionId, prompt, opts } = req.body
+        const result = await this.host._model.generate({ sessionId, prompt, opts: opts as Partial<GenerateOpts> })
+        res.json(result)
+      } catch (err: any) {
+        res.status(500).json({ error: err.message })
+      }
+    })
+
+    this.app.post("/interrupt", async (req, res) => {
+      try {
+        await this.ready
+        const { sessionId } = req.body
+        const result = await this.host._model.interrupt(sessionId)
+        res.json(result)
       } catch (err: any) {
         res.status(500).json({ error: err.message })
       }

@@ -77,19 +77,33 @@ async function createModel(modelPath: string, stateDir: string): Promise<Model> 
 }
 
 async function runGateway() {
+  try {
+    const r = await fetch(`http://127.0.0.1:${gatewayPort}/health`, { signal: AbortSignal.timeout(1500) })
+    if (r.ok) {
+      console.error(`Gateway already running on port ${gatewayPort}`)
+      process.exit(1)
+    }
+  } catch { /* no running gateway — good */ }
+
   const gwStateDir = path.join(SESSIONS_DIR, "_gateway")
   console.error(`RWKV Gateway | port: ${gatewayPort} | model: ${path.basename(modelPath)}`)
 
   const model = await createModel(modelPath, gwStateDir)
-  await model.init(gpuArg, loraPaths)
   const host = new SessionHost(model, gwStateDir)
-  await host.init()
   const server = new GatewayServer(host, WEBAPP_DIR)
 
   await server.start(gatewayPort)
   console.error(`  API:  http://0.0.0.0:${gatewayPort}`)
   console.error(`  WS:   ws://0.0.0.0:${gatewayPort}`)
   console.error(`  Web:  http://0.0.0.0:${gatewayPort}`)
+  console.error(`  Loading model (health endpoint live)...`)
+
+  await Promise.all([
+    model.init(gpuArg, loraPaths),
+    fsp.mkdir(gwStateDir, { recursive: true }),
+  ])
+  await host.init()
+  server.markReady()
   console.error(`  Sessions: ${(await host.listSessions()).length}`)
 
   const shutdown = async () => {
