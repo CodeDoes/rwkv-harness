@@ -165,9 +165,8 @@ function resolveEntry(entry: ExampleEntry, baseDir: string): ExampleEntry {
   return { ...entry, content: resolveAtPaths(content, baseDir) as string }
 }
 
-export function loadExampleEntries(agentName: string): ExampleEntry[] {
+function loadExampleSequences(agentName: string): ExampleEntry[][] {
   const examplesDir = path.join(AGENTS_DIR, agentName, "examples")
-  const entries: ExampleEntry[] = []
 
   // 1. Try a TypeScript loader module (e.g. examples.ts exporting
   //    loadStorytellerExamples()). resolved synchronously via createRequire.
@@ -180,7 +179,14 @@ export function loadExampleEntries(agentName: string): ExampleEntry[] {
         /^load.*Examples$/.test(k)
       )
       if (loaderName && typeof mod[loaderName] === "function") {
-        return (mod[loaderName] as CallableFunction)() as ExampleEntry[]
+        const result = (mod[loaderName] as CallableFunction)()
+        // Support both single array (legacy) and array of arrays (multi-sequence)
+        if (Array.isArray(result)) {
+          if (result.length > 0 && Array.isArray(result[0])) {
+            return (result as ExampleEntry[][])
+          }
+          return [result as ExampleEntry[]]
+        }
       }
     }
   } catch {
@@ -188,29 +194,42 @@ export function loadExampleEntries(agentName: string): ExampleEntry[] {
   }
 
   // 2. Fall back to individual .jsonl files (legacy mode, still used by
-  //    other agents such as the envoy).
+  //    other agents such as the envoy). Each .jsonl file is one sequence.
+  const sequences: ExampleEntry[][] = []
   try {
     const files = fs.readdirSync(examplesDir).filter(f => f.endsWith(".jsonl")).sort()
     for (const file of files) {
       const filePath = path.join(examplesDir, file)
       const baseDir = path.dirname(filePath)
       const lines = fs.readFileSync(filePath, "utf-8").trim().split("\n")
+      const seq: ExampleEntry[] = []
       for (const line of lines) {
         const trimmed = line.trim()
         if (!trimmed) continue
         const entry: ExampleEntry = JSON.parse(trimmed)
-        entries.push(resolveEntry(entry, baseDir))
+        seq.push(resolveEntry(entry, baseDir))
       }
+      sequences.push(seq)
     }
   } catch {}
-  return entries
+  return sequences
+}
+
+export function loadExampleEntries(agentName: string): ExampleEntry[] {
+  return loadExampleSequences(agentName).flat()
 }
 
 export function renderExamples(agentName: string, templateName = "default"): string {
-  const entries = loadExampleEntries(agentName)
-  if (entries.length === 0) return ""
+  const sequences = loadExampleSequences(agentName)
+  if (sequences.length === 0) return ""
   const fmt = getTemplate(templateName)
-  const rendered = fmt.format(entries)
+  if (sequences.length === 1) {
+    const rendered = fmt.format(sequences[0])
+    return `\n\nExamples:\n\n${rendered}`
+  }
+  const rendered = sequences.map((seq, i) =>
+    `Example ${i + 1}:\n\n${fmt.format(seq)}`
+  ).join("\n\n")
   return `\n\nExamples:\n\n${rendered}`
 }
 

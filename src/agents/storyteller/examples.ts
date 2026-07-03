@@ -70,6 +70,6 @@ function makeExample(def: StoryDefinition): ExampleEntry[] {
   ]
 }
 
-export function loadStorytellerExamples(): ExampleEntry[] {
-  return STORIES.flatMap(makeExample)
+export function loadStorytellerExamples(): ExampleEntry[][] {
+  return STORIES.map(makeExample)
 }
