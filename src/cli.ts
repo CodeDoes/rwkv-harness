@@ -7,7 +7,7 @@ import { HttpModel } from "./model/http-model.ts"
 import type { Model } from "./types.ts"
 import { SessionManager } from "./session/session.ts"
 import { StorytellerAgent } from "./agents/storyteller/index.ts"
-import { AgentLoop } from "./agent/loop.ts"
+import { AgentLoop } from "./agents/loop.ts"
 import { SessionHost } from "./session/session-host.ts"
 import { GatewayServer } from "./gateway/server.ts"
 import { Tui } from "./tui/index.ts"
@@ -54,7 +54,7 @@ async function main() {
 
 async function tryGatewayAuto(gatewayPort: number): Promise<Model | null> {
   try {
-    const r = await fetch(`http://127.0.0.1:${gatewayPort}/health`, { signal: AbortSignal.timeout(1500) })
+    const r = await fetch(`http://127.0.0.1:${gatewayPort}/rpc/health`, { signal: AbortSignal.timeout(1500) })
     if (r.ok) {
       console.error(`Model: gateway (http://127.0.0.1:${gatewayPort})`)
       return new HttpModel(`http://127.0.0.1:${gatewayPort}`)
@@ -78,7 +78,7 @@ async function createModel(modelPath: string, stateDir: string): Promise<Model> 
 
 async function runGateway() {
   try {
-    const r = await fetch(`http://127.0.0.1:${gatewayPort}/health`, { signal: AbortSignal.timeout(1500) })
+    const r = await fetch(`http://127.0.0.1:${gatewayPort}/rpc/health`, { signal: AbortSignal.timeout(1500) })
     if (r.ok) {
       console.error(`Gateway already running on port ${gatewayPort}`)
       process.exit(1)

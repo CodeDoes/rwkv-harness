@@ -1,6 +1,7 @@
 import { implement } from "@orpc/server"
-import { RPCHandler } from "@orpc/server/node"
-import type { Model } from "../types.ts"
+import { OpenAPIHandler } from "@orpc/openapi/node"
+import { OpenAPIGenerator } from "@orpc/openapi"
+import type { Model, GenerateResult } from "../types.ts"
 import type { SessionHost } from "../session/session-host.ts"
 import { contract } from "./contract.ts"
 
@@ -13,6 +14,11 @@ const base = implement(contract)
 
 function createRouter(model: Model, host: SessionHost) {
   return base.router({
+    health: base.health.handler(async () => {
+      const stateSize = model.getStateSize()
+      return { status: "ok" as const, stateSize }
+    }),
+
     process: base.process.handler(async ({ input }) => {
       const { sessionId } = await model.process(input)
       return { sessionId }
@@ -26,16 +32,37 @@ function createRouter(model: Model, host: SessionHost) {
 
     stream: base.stream.handler(async function* ({ input }) {
       const { sessionId, prompt, opts, blend, segments } = input
-      let fullText = ""
-      let stopReason: "stop" | "length" | "abort" | "interrupt" = "stop"
-      await model.streamGenerate({
+      const queue: string[] = []
+      let resolve: (() => void) | null = null
+      let done = false
+      let result: GenerateResult = { sessionId: "", text: "", stopReason: "stop" }
+
+      const genPromise = model.streamGenerate({
         sessionId, prompt, opts, blend, segments,
         onToken: (token) => {
-          fullText += token
+          queue.push(token)
+          resolve?.()
+          resolve = null
         },
       })
-      yield { token: fullText }
-      return { sessionId, text: fullText, stopReason }
+      genPromise.then((r) => {
+        result = r
+        done = true
+        resolve?.()
+        resolve = null
+      }).catch(() => {})
+
+      while (!done || queue.length > 0) {
+        while (queue.length > 0) {
+          const token = queue.shift()!
+          yield { token }
+        }
+        if (!done) {
+          await new Promise<void>((r) => { resolve = r })
+        }
+      }
+
+      return { sessionId, text: result.text, stopReason: result.stopReason }
     }),
 
     interrupt: base.interrupt.handler(async ({ input }) => {
@@ -125,7 +152,19 @@ function createRouter(model: Model, host: SessionHost) {
   })
 }
 
-export function createRpcHandler(model: Model, host: SessionHost): RPCHandler<Record<string, never>> {
-  const router = createRouter(model, host)
-  return new RPCHandler(router)
+let routerInstance: ReturnType<typeof createRouter> | null = null
+
+export function createOpenAPIHandler(model: Model, host: SessionHost): OpenAPIHandler<Record<string, never>> {
+  routerInstance = createRouter(model, host)
+  return new OpenAPIHandler(routerInstance)
+}
+
+export async function generateOpenAPISpec(): Promise<object> {
+  if (!routerInstance) {
+    return { openapi: "3.0.3", info: { title: "RWKV Gateway", version: "1.0.0" }, paths: {} }
+  }
+  const generator = new OpenAPIGenerator()
+  return generator.generate(routerInstance, {
+    info: { title: "RWKV Gateway", version: "1.0.0" },
+  })
 }

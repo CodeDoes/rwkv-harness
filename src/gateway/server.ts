@@ -4,7 +4,7 @@ import * as path from "path"
 import { fileURLToPath } from "url"
 import { WebSocketServer, WebSocket } from "ws"
 import { SessionHost } from "../session/session-host.ts"
-import { createRpcHandler } from "../rpc/server.ts"
+import { createOpenAPIHandler, generateOpenAPISpec } from "../rpc/server.ts"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -30,7 +30,7 @@ export class GatewayServer {
 
     // Block non-health requests until model is ready
     this.app.use((_req, res, next) => {
-      if (_req.path === "/health") { next(); return }
+      if (_req.path === "/rpc/health") { next(); return }
       this.ready.then(() => next()).catch(() => next())
     })
 
@@ -40,7 +40,7 @@ export class GatewayServer {
     this.server = http.createServer(this.app)
     this.wss = new WebSocketServer({ server: this.server })
 
-    const rpcHandler = createRpcHandler(this.host._model, this.host)
+    const rpcHandler = createOpenAPIHandler(this.host._model, this.host)
     this.app.use("/rpc{/*path}", async (req, res, next) => {
       const { matched } = await rpcHandler.handle(req as any, res as any, { prefix: "/rpc", context: {} })
       if (!matched) next()
@@ -56,8 +56,9 @@ export class GatewayServer {
   }
 
   private setupRoutes() {
-    this.app.get("/health", (_req, res) => {
-      res.json({ status: "ok", channels: this.channels.size })
+    this.app.get("/openapi.json", async (_req, res) => {
+      const spec = await generateOpenAPISpec()
+      res.json(spec)
     })
   }
 

@@ -61,99 +61,122 @@ const StopReason = z.object({ stopReason: z.literal("Interrupted") })
 // ── Contract ──
 
 export const contract = oc.router({
+  health: oc
+    .route({ method: "GET", path: "/health" })
+    .output(z.object({ status: z.literal("ok"), stateSize: z.number() })),
+
   process: oc
+    .route({ method: "POST", path: "/process" })
     .input(ProcessOpts)
     .output(SessionId),
 
   generate: oc
+    .route({ method: "POST", path: "/generate" })
     .input(z.object({ sessionId: z.string(), prompt: z.string(), opts: GenerateOpts.optional(), blend: MoseBlendWeights.optional(), segments: z.array(Segment).optional() }))
     .output(GenerateResult),
 
   stream: oc
+    .route({ method: "POST", path: "/stream" })
     .input(z.object({ sessionId: z.string(), prompt: z.string(), opts: GenerateOpts.optional(), blend: MoseBlendWeights.optional(), segments: z.array(Segment).optional() }))
     .output(eventIterator(z.object({ token: z.string() }), GenerateResult)),
 
   interrupt: oc
+    .route({ method: "POST", path: "/interrupt" })
     .input(SessionId)
     .output(StopReason),
 
   evaluate: oc
+    .route({ method: "POST", path: "/evaluate" })
     .input(TextBody)
     .output(z.void()),
 
   saveCheckpoint: oc
+    .route({ method: "POST", path: "/save-checkpoint" })
     .input(SlotName)
     .output(StateInfo),
 
   loadCheckpoint: oc
+    .route({ method: "POST", path: "/load-checkpoint" })
     .input(SlotName)
     .output(z.void()),
 
   listSessions: oc
-    .input(z.void())
+    .route({ method: "GET", path: "/sessions" })
     .output(z.array(SessionInfo)),
 
   createSession: oc
+    .route({ method: "POST", path: "/sessions" })
     .input(LabelInput)
     .output(SessionInfo),
 
   switchSession: oc
+    .route({ method: "POST", path: "/sessions/switch" })
     .input(LabelInput)
     .output(SessionInfo),
 
   deleteSession: oc
+    .route({ method: "DELETE", path: "/sessions/{label}" })
     .input(LabelInput)
     .output(z.void()),
 
   getMessages: oc
+    .route({ method: "GET", path: "/sessions/{label}/messages" })
     .input(LabelOptional)
     .output(z.array(ChatMessage)),
 
   chat: oc
+    .route({ method: "POST", path: "/chat" })
     .input(PromptBody)
     .output(z.string()),
 
   mose: {
     createExpert: oc
+      .route({ method: "POST", path: "/mose/experts" })
       .input(CreateExpertInput)
       .output(MoSEExpert),
 
     list: oc
-      .input(z.void())
+      .route({ method: "GET", path: "/mose/experts" })
       .output(z.array(MoSEExpert)),
 
     removeExpert: oc
+      .route({ method: "DELETE", path: "/mose/experts/{name}" })
       .input(RemoveExpertInput)
       .output(z.boolean()),
 
     apply: oc
+      .route({ method: "POST", path: "/mose/blend" })
       .input(ApplyBlendInput)
       .output(z.void()),
 
     segmentRoute: oc
+      .route({ method: "POST", path: "/mose/segment" })
       .input(SegmentRouteInput)
       .output(z.void()),
   },
 
   lora: {
     add: oc
+      .route({ method: "POST", path: "/lora/experts" })
       .input(AddLoraInput)
       .output(z.void()),
 
     list: oc
-      .input(z.void())
+      .route({ method: "GET", path: "/lora/experts" })
       .output(z.object({ adapters: z.array(LoRAAdapter), active: z.array(z.string()) })),
 
     remove: oc
+      .route({ method: "DELETE", path: "/lora/experts/{name}" })
       .input(RemoveLoraInput)
       .output(z.void()),
 
     activate: oc
+      .route({ method: "POST", path: "/lora/activate" })
       .input(ActivateLoraInput)
       .output(z.void()),
 
     deactivate: oc
-      .input(z.void())
+      .route({ method: "POST", path: "/lora/deactivate" })
       .output(z.void()),
   },
 })

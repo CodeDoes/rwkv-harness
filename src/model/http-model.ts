@@ -159,7 +159,7 @@ export interface BootOpts {
 export async function bootRemoteModel(opts: BootOpts): Promise<{ model: HttpModel; close: () => Promise<void> }> {
   const port = opts.port ?? parseInt(process.env.INFERENCE_PORT ?? "3210", 10)
   const url = `http://127.0.0.1:${port}`
-  const healthUrl = `${url}/health`
+  const healthUrl = `${url}/rpc/health`
 
   let alive = false
   try {

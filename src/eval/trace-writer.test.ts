@@ -4,7 +4,7 @@ import * as path from "path"
 import * as os from "os"
 import { fileURLToPath } from "url"
 import { TraceWriter } from "./trace-writer.ts"
-import { AgentLoop } from "../agent/loop.ts"
+import { AgentLoop } from "../agents/loop.ts"
 import { SessionManager } from "../session/session.ts"
 import { MockModel } from "./mock-engine.ts"
 
