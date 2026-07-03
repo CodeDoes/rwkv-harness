@@ -2,8 +2,8 @@ import type { ExampleEntry } from "../example-template.ts"
 
 interface StoryDefinition {
   slug: string
-  description: string
   refDir: string
+  userPrompt: string
   wiki: {
     character: string
     location: string
@@ -14,26 +14,26 @@ interface StoryDefinition {
 const STORIES: StoryDefinition[] = [
   {
     slug: "shadow-realm",
-    description: "a shadow realm story",
     refDir: "story-shadow",
+    userPrompt: "@./story-shadow/_user.md",
     wiki: { character: "mara", location: "duskfall", faction: "umbral-order" },
   },
   {
     slug: "dragon-realm",
-    description: "a story about dragons",
     refDir: "story-tale",
+    userPrompt: "@./story-tale/_user.md",
     wiki: { character: "lyra", location: "dragon-peak", faction: "ashen-council" },
   },
   {
     slug: "starfall",
-    description: "a starfall saga",
     refDir: "story-starfall",
+    userPrompt: "@./story-starfall/_user.md",
     wiki: { character: "celeste", location: "starfall-crater", faction: "observatory-council" },
   },
 ]
 
 function makeExample(def: StoryDefinition): ExampleEntry[] {
-  const { slug, description, refDir, wiki } = def
+  const { slug, refDir, wiki } = def
   const ws = `workspace/${slug}`
 
   const lsArgs = JSON.stringify({ path: ws, recursive: true })
@@ -41,7 +41,7 @@ function makeExample(def: StoryDefinition): ExampleEntry[] {
   const filesEmpty = JSON.stringify({ name: "ls", result: { files: [] } })
 
   return [
-    { type: "user", content: `Create ${description} with 3 chapters and wiki. Use ${ws}` },
+    { type: "user", content: def.userPrompt },
     { type: "think", content: "Check workspace, then write plan, chapters, and wiki." },
     { type: "tool_call", content: JSON.stringify({ name: "ls", arguments: { path: ws, recursive: true } }) },
     { type: "tool_response", content: filesEmpty },
