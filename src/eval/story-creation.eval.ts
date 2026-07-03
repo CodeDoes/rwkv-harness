@@ -141,7 +141,7 @@ const trace = new TraceWriter("oracle").open({ mode: "oracle", baseDir })
 
 async function tryConnectGateway(port = 3030): Promise<Model | null> {
   try {
-    const r = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(1500) })
+    const r = await fetch(`http://127.0.0.1:${port}/rpc/health`, { signal: AbortSignal.timeout(1500) })
     if (r.ok) {
       console.error(`Gateway running on :${port}, connecting...`)
       return new HttpModel(`http://127.0.0.1:${port}`)
