@@ -4,7 +4,7 @@ sessions/
 workspace/
 *.state
 adapters/
-src/eval/.traces/
+.traces/
 inference-3210.pid
 rwkv-harness/
 native/**/target/
@@ -14,3 +14,4 @@ native/**/target/
 .inference.log
 .inference.pid
 .preview.grammar
+.eval.log
