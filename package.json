@@ -26,6 +26,7 @@
     "bench:placement": "bash scripts/bench-placement.sh",
     "test:trace": "tsx src/eval/trace-writer.test.ts",
     "test:agent": "tsx src/agents/agent.test.ts",
+    "test:state-tune": "tsx src/core/state-tune-cache.test.ts",
     "convert:rwkv": "python3 scripts/convert-rwkv.py",
     "dev:setup": "pnpm install && pnpm build:native",
     "grammar:preview": "tsx scripts/preview-grammar.ts",

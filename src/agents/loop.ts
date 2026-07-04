@@ -14,6 +14,7 @@ import {
 } from "./format-config.ts"
 import { clean, fixToolCallJson } from "../model/adapter-utils.ts"
 import { parseToolCalls as adapterParseToolCalls } from "../model/adapter.ts"
+import { StateTuneCache, getDefaultStateTuneCache } from "../core/state-tune-cache.ts"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const AGENTS_DIR = resolve(__dirname, "../agents")
@@ -31,6 +32,12 @@ export interface AgentLoopConfig {
   onToolResult?: (result: ToolResult) => void
   /** Called to persist session state after each turn (Phase 5 bridge). */
   saveSession?: () => Promise<void>
+  /**
+   * Skip re-baking state-tune examples through the model when the
+   * content hash matches a prior run. Defaults to true (use the
+   * process-wide cache). Pass `false` to force re-processing.
+   */
+  useStateTuneCache?: boolean
 }
 
 export class AgentLoop {
@@ -48,6 +55,7 @@ export class AgentLoop {
     this.session = session
     this.maxDepth = maxDepth
     this.template = getTemplate(config?.templateName ?? "default")
+    const useCache = config?.useStateTuneCache ?? true
     this.config = {
       systemPrompt: config?.systemPrompt ?? DEFAULT_SYSTEM_PREAMBLE,
       toolDefs: config?.toolDefs ?? defaultToolDefs,
@@ -57,6 +65,11 @@ export class AgentLoop {
       onToolCall: config?.onToolCall ?? (() => {}),
       onToolResult: config?.onToolResult ?? (() => {}),
       saveSession: config?.saveSession ?? (() => Promise.resolve()),
+      useStateTuneCache: useCache,
+    }
+    const cache: StateTuneCache | null = useCache ? getDefaultStateTuneCache() : null
+    if (typeof (model as Partial<Engine> & { setStateTuneCache?: unknown }).setStateTuneCache === "function") {
+      (model as unknown as { setStateTuneCache(c: StateTuneCache | null): void }).setStateTuneCache(cache)
     }
     this.sessionId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
     this.initPromise = model.process({

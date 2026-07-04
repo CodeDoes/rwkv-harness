@@ -10,6 +10,7 @@ import {
   type StreamGenerateRequest,
 } from "../types.ts"
 import { MoSEEngine, LoRAManager } from "./mose.ts"
+import { StateTuneCache } from "../core/state-tune-cache.ts"
 
 const GENERATE_TIMEOUT = 120_000
 
@@ -152,16 +153,59 @@ export class NativeRwkvModel implements Engine {
     if (opts.stateCheckpoint) {
       try {
         await this.loadCheckpoint(opts.stateCheckpoint)
+        // When resuming from a checkpoint, state has moved away from the
+        // canonical baseline; force re-evaluation so we don't get stuck
+        // against a stale hash.
         await this.ensure().evaluate(opts.append?.content ?? "")
       } catch {
       }
     } else {
       await this.loadBaseline()
-      if (opts.append) {
-        await this.ensure().evaluate(opts.append.content)
+      const appendText = opts.append?.content ?? ""
+      if (appendText) {
+        if (this.canSkipStateTuneBaking(appendText)) {
+          // Cached: same content already baked through this binding since
+          // the last reset. We just loaded baseline → state already
+          // contains the equivalent RNN activation.
+        } else {
+          await this.ensure().evaluate(appendText)
+          this.recordStateTuneBaked(appendText)
+        }
       }
     }
     return { sessionId: sid }
+  }
+
+  /**
+   * Optional content-hash cache. If a `stateTuneCache` is provided,
+   * `process()` will skip re-running `evaluate(appendText)` when the
+   * exact same content has already been baked against a fresh baseline.
+   *
+   * Default is `null` → no caching, current behavior preserved.
+   */
+  private stateTuneCache: StateTuneCache | null = null
+  private lastStateTuneHash: string | null = null
+
+  /** Wire (or clear) a state-tune cache. Pass `null` to disable. */
+  setStateTuneCache(cache: StateTuneCache | null): void {
+    this.stateTuneCache = cache
+    // When the cache is swapped, the binding state is presumed unchanged
+    // but the bookkeeping rolls over: any pending "we just baked this hash"
+    // has to be re-established so we don't bypass the next baking either.
+    this.lastStateTuneHash = null
+  }
+
+  private canSkipStateTuneBaking(text: string): boolean {
+    if (!this.stateTuneCache) return false
+    const hash = StateTuneCache.hash(undefined, text)
+    return this.stateTuneCache.has(hash) && hash === this.lastStateTuneHash
+  }
+
+  private recordStateTuneBaked(text: string): void {
+    if (!this.stateTuneCache) return
+    const hash = StateTuneCache.hash(undefined, text)
+    this.stateTuneCache.set(hash, { bytes: Buffer.byteLength(text, "utf-8") })
+    this.lastStateTuneHash = hash
   }
 
   async interrupt(sessionId: string): Promise<{ stopReason: "Interrupted" }> {
