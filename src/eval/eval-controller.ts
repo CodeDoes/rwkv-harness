@@ -108,13 +108,9 @@ export class EvalController {
           this.traceWriter.write("user", taskText)
 
           let lastAssistantText = ""
-          let subagentBlockCaptured = false
           const subResult = await subLoop.run(taskText, {
             onRawOutput: (raw) => {
-              if (!subagentBlockCaptured) {
-                this.traceWriter.write("assistant", raw)
-                subagentBlockCaptured = true
-              }
+              this.traceWriter.write("assistant", raw)
             },
             onText: (t: string) => {
               storytellerOutput += t
