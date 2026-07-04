@@ -23,6 +23,8 @@
     "agent": "tsx src/cli.ts agent",
     "eval": "tsx src/eval/story-creation.eval.ts",
     "eval:live": "tsx src/eval/story-creation.eval.ts --live",
+    "eval:cases": "tsx src/eval/cases.eval.ts",
+    "eval:cases:live": "echo 'eval:cases:live not yet implemented — needs /rpc/inject endpoint' && exit 1",
     "build:native": "cd native/rwkv-bindings/rwkv-bindings && cargo build --release && cp target/release/librwkv_bindings.so ../../rwkv-bindings.linux-x64-gnu.node",
     "typecheck": "tsc --noEmit",
     "bench:placement": "bash scripts/bench-placement.sh",
