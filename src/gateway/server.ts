@@ -29,6 +29,20 @@ export class GatewayServer {
     this.app = express()
     this.app.use(express.json())
 
+    // Log every request to stderr
+    this.app.use((req, res, next) => {
+      const start = Date.now()
+      const ts = new Date().toISOString().slice(11, 23)
+      const content = req.body
+        ? JSON.stringify(req.body).replace(/\s+/g, " ").slice(0, 200)
+        : ""
+      res.on("finish", () => {
+        const elapsed = Date.now() - start
+        console.error(`[${ts}] ${req.method} ${req.path} → ${res.statusCode} (${elapsed}ms)${content ? " " + content : ""}`)
+      })
+      next()
+    })
+
     // Block non-health requests until model is ready
     this.app.use((_req, res, next) => {
       if (_req.path === "/rpc/health") { next(); return }

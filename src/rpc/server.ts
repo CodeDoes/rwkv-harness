@@ -41,6 +41,12 @@ function createRouter(model: Engine, host: SessionHost, modelPath: string, model
 
     stream: base.stream.handler(async function* ({ input }) {
       const { sessionId, prompt, opts, blend, segments } = input
+      const promptSnippet = prompt.replace(/\s+/g, " ").slice(0, 120)
+      const ts = new Date().toISOString().slice(11, 23)
+      console.error(`[${ts}] STREAM start sessionId=${sessionId} prompt="${promptSnippet}"`)
+      let tokenCount = 0
+      let fullText = ""
+
       const queue: string[] = []
       let resolve: (() => void) | null = null
       let done = false
@@ -64,6 +70,8 @@ function createRouter(model: Engine, host: SessionHost, modelPath: string, model
       while (!done || queue.length > 0) {
         while (queue.length > 0) {
           const token = queue.shift()!
+          fullText += token
+          tokenCount++
           yield { token }
         }
         if (!done) {
@@ -71,6 +79,8 @@ function createRouter(model: Engine, host: SessionHost, modelPath: string, model
         }
       }
 
+      const textSnippet = fullText.replace(/\s+/g, " ").slice(0, 120)
+      console.error(`[${ts}] STREAM end sessionId=${sessionId} tokens=${tokenCount} stopReason=${result.stopReason} text="${textSnippet}"`)
       return { sessionId, text: result.text, stopReason: result.stopReason }
     }),
 
