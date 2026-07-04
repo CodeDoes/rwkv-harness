@@ -1,3 +1,7 @@
+---
+think: |
+  Chapter 2 voice: same tense / POV as chapter 1. The shadow threat should become undeniable to a wider cast. End on a structural turn that cannot be undone.
+---
 # Chapter 2: The Spreading
 
 Mara woke on a rooftop in the Lower Ward, the Box burning cold against her ribs. She'd spent the night in the old templar watchtower, and even stone and iron hadn't kept the shadows out. They pooled in the corners of the room, leaking through mortar joints like water through cracked glass.

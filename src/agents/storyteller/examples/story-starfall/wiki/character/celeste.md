@@ -1,3 +1,7 @@
+---
+think: |
+  Celeste is the chief astronomer. Quiet obsession with old star maps, a superstition she keeps, friction with her Council. Profile the small-tells.
+---
 # Celeste Voss
 
 **Role:** Astronomer and first human Star-Speaker

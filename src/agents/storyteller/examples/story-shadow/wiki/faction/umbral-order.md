@@ -1,3 +1,7 @@
+---
+think: |
+  The Umbral Order is morally-complicated — night-watch enforcers who secretly bind shadow-eaters. Public function vs private agenda.
+---
 # The Umbral Order
 
 **Type:** Semi-secret civic authority with religious overtones

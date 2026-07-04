@@ -1,3 +1,7 @@
+---
+think: |
+  Chapter 2 voice: expedition atmosphere. The crater's flora + crystals should feel alien-but-familiar.
+---
 # Chapter 2: The Star-Speaker
 
 The crystal spoke to her in the first week, not in words but in what felt like remembered context — a faint overlay of knowledge that arrived without effort, as though she'd studied celestial mechanics in a previous life and simply hadn't remembered until now. Celeste taught herself to listen for it: quiet the analytical mind enough that the overlay could surface, like recalling a dream in the morning light. It was exhausting work, and it changed her.

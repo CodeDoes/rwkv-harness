@@ -31,6 +31,7 @@
     "test:trace": "tsx src/eval/trace-writer.test.ts",
     "test:agent": "tsx src/agents/agent.test.ts",
     "test:format-strictness": "tsx src/eval/format-strictness.test.ts",
+    "test:frontmatter": "tsx src/agents/storyteller/frontmatter.test.ts",
     "test:state-tune": "tsx src/core/state-tune-cache.test.ts",
     "test:log-stream": "tsx src/core/log-stream.test.ts",
     "test:workspace": "tsx src/core/workspace.test.ts",

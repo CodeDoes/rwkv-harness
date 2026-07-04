@@ -1,3 +1,7 @@
+---
+think: |
+  Plan tone: warm but tense. Each chapter builds toward the dragon's sacrifice. The wiki covers Lyra (dragon), Kael (smith), Dragon's Peak, the Ashen Council.
+---
 # The Dragon's Legacy: Plan
 
 ## Premise

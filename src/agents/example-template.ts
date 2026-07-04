@@ -227,7 +227,13 @@ export function loadExampleEntries(agentName: string): ExampleEntry[] {
           /^load.*Examples$/.test(k)
         )
         if (loaderName && typeof mod[loaderName] === "function") {
-          return (mod[loaderName] as CallableFunction)() as ExampleEntry[]
+          const raw = (mod[loaderName] as CallableFunction)() as ExampleEntry[]
+          // Resolve `@./path` content references against the agent's
+          // examples directory (`src/agents/<name>/examples/`). TS
+          // loaders can encode their file references relative to that
+          // directory so the same convention works whether the loader
+          // lives at the agent root or under `examples/`.
+          return raw.map((e) => resolveEntry(e, examplesDir))
         }
       }
     } catch {

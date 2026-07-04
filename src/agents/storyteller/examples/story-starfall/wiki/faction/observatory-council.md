@@ -1,3 +1,7 @@
+---
+think: |
+  Observatory Council: institutional gatekeepers. Public mission vs private funding-discipline; profile what they suppressed and why.
+---
 # Observatory Council
 
 **Type:** Public research institution with classified operational divisions

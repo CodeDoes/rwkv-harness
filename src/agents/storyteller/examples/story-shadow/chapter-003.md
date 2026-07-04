@@ -1,3 +1,7 @@
+---
+think: |
+  Chapter 3 voice: climax + bargain. Don't introduce another antagonist. Mara's choice should be the climax. Loop the sense detail you used in chapter 1 — the iron-and-stained-glass-dome — back in as a callback.
+---
 # Chapter 3: The Bargain
 
 The Umbral Order's fortress was a cathedral carved into the city's cliff face, its doors guarded by men who moved with a coordination that was almost inhuman. Mara went in alone, the Box in one hand and Kael's lantern in the other. The lantern was her only advantage — the Order's blue flame could be overpowered, Kael had shown her, but only at close range.

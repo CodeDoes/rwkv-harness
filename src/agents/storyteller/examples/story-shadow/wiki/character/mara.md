@@ -1,3 +1,7 @@
+---
+think: |
+  Mara is the thief protagonist. Profile what's known publicly, what she's hiding, and the debt that drives her.
+---
 # Mara
 
 **Role:** Professional thief, later the unwilling steward of the Shadow Box

@@ -1,3 +1,7 @@
+---
+think: |
+  Starfall Crater: high-plains impact site, glass-floor depression, strange flora, crystals humming at dawn. Profile atmosphere + that research-leads-the-instruments-astray detail.
+---
 # Starfall Crater
 
 **Location:** Six kilometres west of the Whispering Woods trailhead, accessible via the old logging road, approximately one hour's walk from the Northern High Observatory's secondary dome

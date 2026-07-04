@@ -1,3 +1,7 @@
+---
+think: |
+  Ashen Council: institutional antagonist. Methods (ash-magic, compass trackers, scale bounties) make them feel credible.
+---
 # The Ashen Council
 
 **Type:** Political-military organisation with religious framing

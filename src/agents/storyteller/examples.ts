@@ -1,4 +1,5 @@
 import type { ExampleEntry } from "../example-template.ts"
+import { readFrontmatter } from "./frontmatter.ts"
 
 /**
  * Storyteller examples. The model uses these to learn:
@@ -6,10 +7,18 @@ import type { ExampleEntry } from "../example-template.ts"
  *   - The output rules (.md files only, all-unique paths, full structure before stopping).
  *   - The strategy: plan first, then chapters, then wiki.
  *
- * The think blocks here are intentionally narrative — they explain WHY the
- * next call is happening, what the assistant is checking for, and how it ties
- * to the user's original request. This gives the model real reasoning to
- * imitate at inference time, instead of terse one-liners.
+ * The think blocks here come from two sources:
+ *   - Generator-level narratives (built in code below) cover the
+ *     between-turn strategy ("check the workspace first", "plan before
+ *     chapters", etc.).
+ *   - Per-file frontmatter `think:` blocks (see frontmatter.ts) come
+ *     from the example .md files themselves. Each file's frontmatter
+ *     tells the model how to think ABOUT that file as it writes it —
+ *     target narrator voice for chapter 1, target scope for the
+ *     faction wiki, etc. The loader parses frontmatter once and
+ *     injects the think entry before the corresponding tool_call.
+ *
+ * Together they teach the model both behavior and per-file intent.
  */
 
 interface WikiEntry {
@@ -120,8 +129,41 @@ function makeExample(def: StoryDefinition): ExampleEntry[] {
   const writeResult = JSON.stringify({ name: "write", result: { success: true } })
   const filesEmpty = JSON.stringify({ name: "ls", result: { files: [] } })
 
+  /**
+   * Resolve `@./...` references relative to the example directory and
+   * read optional frontmatter. Falls back to a synthetic body when the
+   * file is missing or has no frontmatter, so test fixtures can ship
+   * without it.
+   */
+  const resolveFile = (ref: string, fallbackBody: string, fallbackThink: string): { think: string; body: string } => {
+    if (!ref.startsWith("@")) return { think: fallbackThink, body: ref }
+    const rel = ref.slice(2)
+    const fm = readFrontmatter(ref)
+    if (!fm) {
+      return { think: fallbackThink, body: `<!-- missing file: ${rel} -->\n${fallbackBody}` }
+    }
+    return {
+      think: fm.think ?? fallbackThink,
+      body: fm.body || fallbackBody,
+    }
+  }
+
+  const userRef = def.userPrompt.startsWith("@") ? def.userPrompt.slice(2) : def.userPrompt
+  const userFm = readFrontmatter(def.userPrompt) ?? { think: null, body: def.userPrompt, extra: {} }
+  const planRef = `@./${refDir}/_plan.md`
+  const planFm = readFrontmatter(planRef) ?? { think: null, body: "", extra: {} }
+  const chapterRefs = [
+    { ref: `@./${refDir}/chapter-001.md`, fallback: "" },
+    { ref: `@./${refDir}/chapter-002.md`, fallback: "" },
+    { ref: `@./${refDir}/chapter-003.md`, fallback: "" },
+  ]
+  const chapterFms = chapterRefs.map((c) => readFrontmatter(c.ref) ?? { think: null, body: c.fallback, extra: {} })
+
   const entries: ExampleEntry[] = [
-    { type: "user", content: def.userPrompt },
+    {
+      type: "user",
+      content: userFm.think ? `${userFm.body}\n\n<!--think: ${userFm.think} -->` : userFm.body,
+    },
     {
       type: "think",
       content:
@@ -150,8 +192,9 @@ function makeExample(def: StoryDefinition): ExampleEntry[] {
     { type: "tool_response", content: writeResult },
     {
       type: "think",
-      content:
-        "Plan in place. Now chapter 1 — establish the central character, the world they live in, and the inciting incident. Each chapter lives at chapter-001.md, chapter-002.md, chapter-003.md (zero-padded, never 'chapter_1.md'). I write the file once; if I have to fix a typo I use edit later, but for the initial draft it's one write per file.",
+      content: chapterFms[0].think
+        ? `Plan in place. Now chapter 1 — ${chapterFms[0].think} Each chapter lives at chapter-001.md, chapter-002.md, chapter-003.md (zero-padded, never 'chapter_1.md'). I write the file once; if I have to fix a typo I use edit later, but for the initial draft it's one write per file.`
+        : "Plan in place. Now chapter 1 — establish the central character, the world they live in, and the inciting incident. Each chapter lives at chapter-001.md, chapter-002.md, chapter-003.md (zero-padded, never 'chapter_1.md'). I write the file once; if I have to fix a typo I use edit later, but for the initial draft it's one write per file.",
     },
     {
       type: "tool_call",
@@ -163,8 +206,9 @@ function makeExample(def: StoryDefinition): ExampleEntry[] {
     { type: "tool_response", content: writeResult },
     {
       type: "think",
-      content:
-        "Chapter 1 saved. Chapter 2 should deepen the relationship introduced in chapter 1, raise the stakes, and end on a turn into the third act. I keep the prose style consistent — same POV tense, same paragraph rhythm — so the chapters feel like one book, not three sketches.",
+      content: chapterFms[1].think
+        ? `Chapter 1 saved. Chapter 2 — ${chapterFms[1].think} I keep the prose style consistent — same POV tense, same paragraph rhythm — so the chapters feel like one book, not three sketches.`
+        : "Chapter 1 saved. Chapter 2 should deepen the relationship introduced in chapter 1, raise the stakes, and end on a turn into the third act. I keep the prose style consistent — same POV tense, same paragraph rhythm — so the chapters feel like one book, not three sketches.",
     },
     {
       type: "tool_call",
@@ -176,8 +220,9 @@ function makeExample(def: StoryDefinition): ExampleEntry[] {
     { type: "tool_response", content: writeResult },
     {
       type: "think",
-      content:
-        "Chapter 2 saved. Chapter 3 is the climax and resolution — resolve the inciting incident from chapter 1, pay off the setup in chapter 2, and land on an ending that respects the characters. Keep it tight; do not introduce new factions or magic rules in the final chapter.",
+      content: chapterFms[2].think
+        ? `Chapter 2 saved. Chapter 3 — ${chapterFms[2].think} Keep it tight; do not introduce new factions or magic rules in the final chapter.`
+        : "Chapter 2 saved. Chapter 3 is the climax and resolution — resolve the inciting incident from chapter 1, pay off the setup in chapter 2, and land on an ending that respects the characters. Keep it tight; do not introduce new factions or magic rules in the final chapter.",
     },
     {
       type: "tool_call",
@@ -190,7 +235,11 @@ function makeExample(def: StoryDefinition): ExampleEntry[] {
   ]
 
   for (const seg of wikiSegments) {
-    entries.push({ type: "think", content: seg.think })
+    const wikiFm = readFrontmatter(seg.content) ?? { think: null, body: "", extra: {} }
+    const wikiThink = wikiFm.think
+      ? `${wikiFm.think}`
+      : seg.think
+    entries.push({ type: "think", content: wikiThink })
     entries.push({
       type: "tool_call",
       content: JSON.stringify({

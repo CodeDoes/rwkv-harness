@@ -1,3 +1,7 @@
+---
+think: |
+  Chapter 1 voice: observatory-detail rich. Open with the nightly skywatching ritual, then the trajectory anomaly.
+---
 # Chapter 1: The Falling Star
 
 Celeste had been mapping the northern sky for eleven years when the star fell. She was alone at the high observatory that night — her assistant had taken the week off, the funding committee had cancelled the maintenance visit, and the generator was running on fumes. She was not in the best position to witness anything, which is precisely why the star seemed to aim for her clearing.

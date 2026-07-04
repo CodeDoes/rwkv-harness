@@ -1,3 +1,7 @@
+---
+think: |
+  Duskfall City is the heist town and the spreading-shadow zone. Profile both what the city surfaces show and the threat under the surface.
+---
 # Duskfall City
 
 **Location:** Eastern coastal city-state, built into and beneath a volcanic cliff face

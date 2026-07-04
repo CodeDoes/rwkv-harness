@@ -1,3 +1,7 @@
+---
+think: |
+  Chapter 1 voice: warm first contact, mountain atmosphere. Show Kael as careful (not heroic) — careful is the tension.
+---
 # Chapter 1: The Discovery
 
 The forge fire hissed as Kael plunged the red-hot steel into the water trough. Steam billowed upward, carrying the sharp smell of quenching oil and burnt sweat. He'd been at the anvil since before dawn, heating and folding and heating again — a young blacksmith's work was never done, not in a village like Emberhold that depended on one forge for everything from horseshoes to gate hinges.

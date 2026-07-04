@@ -1,3 +1,7 @@
+---
+think: |
+  Plan tone: noir, slow-burn. The chapters should escalate menace without breaking visual continuity. The wiki covers Mara, the city, and the antagonist — keep that focus.
+---
 # Shadow Realm: Outline
 
 ## Premise

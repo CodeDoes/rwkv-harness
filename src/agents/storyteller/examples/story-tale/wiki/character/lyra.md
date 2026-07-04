@@ -1,3 +1,7 @@
+---
+think: |
+  Lyra is the bronze dragon. Last-of-her-kind, weary, protective. Profile what 427 years feels like on her.
+---
 # Lyra
 
 **Role:** Bronze dragon, last of her kind

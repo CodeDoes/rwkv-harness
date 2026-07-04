@@ -1,3 +1,7 @@
+---
+think: |
+  Chapter 3 voice: institutional battle. Celeste's choice to publish outweighs wins the climax — restraint beat.
+---
 # Chapter 3: The Ascension
 
 The Council returned with a warrant and twelve operatives. They brought suppression equipment — a modified coil designed to dampen electromagnetic resonance — and a directive that, if Celeste refused to cooperate, the crystal would be taken by force. She read the lattice the night before they were due. It showed her, with dismaying clarity, what suppression would do: the lattice would fragment, the local effects would collapse, and the star-entity would fall into a dormancy that might last the remaining span of her own lifetime.

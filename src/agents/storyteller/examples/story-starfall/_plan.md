@@ -1,3 +1,7 @@
+---
+think: |
+  Plan tone: observational, careful. The chapters should escalate from anomaly to suppressed report to undeniable signal. Wiki covers Celeste, the crater, the Council.
+---
 # Starfall Saga: Plan
 
 ## Premise

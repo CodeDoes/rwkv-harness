@@ -1,3 +1,7 @@
+---
+think: |
+  Chapter 3 voice: climax is Kael's choice, not a battle. Lyra's goodbye is the emotional lever — handle with restraint.
+---
 # Chapter 3: The Sacrifice
 
 The Ashen Council arrived at dawn. Three figures in grey cloaks stood at Emberhold's wooden gate, flanked by a dozen soldiers in burnished armour. Kael met them at the gate itself, pretending he had been up early to unlock it. The lead councillor — a woman named Maren with a voice like stone grinding on glass — asked him directly whether he knew of a dragon sheltering in the high meadows. Kael said no. Maren did not believe him.

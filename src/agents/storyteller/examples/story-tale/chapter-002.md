@@ -1,3 +1,7 @@
+---
+think: |
+  Chapter 2 voice: bonding, history. Use the night-by-the-fire element to reveal lore without info-dumping.
+---
 # Chapter 2: The Bond
 
 Kael carried water from the stream in buckets, each trip taking longer than the last as his arms ached and the cold mountaintop air bit through his leather apron. The dragon drank in slow, careful gulps, her breathing steadying with each swallow. She told him, between sips, that her name was Lyra and that she was the last of a species that had once filled the skies above Emberhold like clouds.

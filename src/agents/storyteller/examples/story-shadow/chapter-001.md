@@ -1,3 +1,7 @@
+---
+think: |
+  Chapter 1 voice: third-person, tense prose, present tense if possible. Open inside the heist, mid-action, then ground us in Mara's expertise.
+---
 # Chapter 1: The Heist
 
 Mara had spent three years learning the streets of Duskfall City the way a musician learns a score — every alley, every roofline, every guard rotation. The Grand Archive sat at the city's heart, a brutalist dome of black iron and stained glass that seemed to absorb even the moonlight. Inside, behind twelve wards and a door that required three different keys turned in precise sequence, rested the Shadow Box.

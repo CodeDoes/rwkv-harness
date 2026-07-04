@@ -1,3 +1,7 @@
+---
+think: |
+  Dragon's Peak: high-altitude, summit mist, dragon-carved tunnels, locals half-believing. Profile atmosphere + what the place holds.
+---
 # Dragon's Peak
 
 **Location:** Mountain range approximately thirty miles east of Emberhold village, the highest chain in the region, elevation peaking at roughly 14,000 feet at the Obsidian Crown
