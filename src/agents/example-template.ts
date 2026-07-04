@@ -205,29 +205,37 @@ function resolveEntry(entry: ExampleEntry, baseDir: string): ExampleEntry {
 }
 
 export function loadExampleEntries(agentName: string): ExampleEntry[] {
-  const examplesDir = path.join(AGENTS_DIR, agentName, "examples")
+  const agentDir = path.join(AGENTS_DIR, agentName)
+  const examplesDir = path.join(agentDir, "examples")
   const entries: ExampleEntry[] = []
 
-  // 1. Try a TypeScript loader module (e.g. examples.ts exporting
-  //    loadStorytellerExamples()). resolved synchronously via createRequire.
-  try {
-    const tsLoader = path.join(examplesDir, "examples.ts")
-    if (fs.existsSync(tsLoader)) {
-      const _require = createRequire(import.meta.url)
-      const mod = _require(tsLoader) as Record<string, unknown>
-      const loaderName = Object.keys(mod).find(k =>
-        /^load.*Examples$/.test(k)
-      )
-      if (loaderName && typeof mod[loaderName] === "function") {
-        return (mod[loaderName] as CallableFunction)() as ExampleEntry[]
+  // 1. Try a TypeScript loader module. Two locations:
+  //    (a) `agentDir/examples.ts` — modern location (e.g. storyteller,
+  //        envoy). Loaded synchronously via createRequire.
+  //    (b) `examplesDir/examples.ts` — legacy location kept for
+  //        backward compat.
+  const tsLoaders = [
+    path.join(agentDir, "examples.ts"),
+    path.join(examplesDir, "examples.ts"),
+  ]
+  for (const tsLoader of tsLoaders) {
+    try {
+      if (fs.existsSync(tsLoader)) {
+        const _require = createRequire(import.meta.url)
+        const mod = _require(tsLoader) as Record<string, unknown>
+        const loaderName = Object.keys(mod).find(k =>
+          /^load.*Examples$/.test(k)
+        )
+        if (loaderName && typeof mod[loaderName] === "function") {
+          return (mod[loaderName] as CallableFunction)() as ExampleEntry[]
+        }
       }
+    } catch {
+      // try the next tsLoader, or fall through to .jsonl
     }
-  } catch {
-    // No TS loader found or failed; fall through to .jsonl search
   }
 
-  // 2. Fall back to individual .jsonl files (legacy mode, still used by
-  //    other agents such as the envoy).
+  // 2. Fall back to individual .jsonl files (legacy mode).
   try {
     const files = fs.readdirSync(examplesDir).filter(f => f.endsWith(".jsonl")).sort()
     for (const file of files) {

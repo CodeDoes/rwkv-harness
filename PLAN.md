@@ -1,57 +1,36 @@
-# Next Steps
+# PLAN
 
-Forward-looking plan after the 6-phase architecture refactoring (ARCH.md, commits 81e0d88–c261cc4). Items here are deliberate, prioritized, and reachable within a quarter.
+## 1. Consolidate examples to `src/agents/*/examples.ts` with rich think tags
+- Move JSONL example files (`src/agents/envoy/examples/spawn_story.jsonl`) into `src/agents/envoy/examples.ts` as TS array.
+- Keep `src/agents/storyteller/examples.ts` but rewrite the loader so it builds three narrated, multi-paragraph `think` blocks per story — narrating strategy ("User wants X → check workspace → write plan → write chapters → wiki"), instead of terse one-liners.
+- Make the think tags "more interesting": a mini-monologue describing strategy, file naming, parallelism, and intent per step. Also include one or two `think` blocks that mention the envoy behavior (storyteller's `think` references the user request, the agent's role, and the output rules).
+- Verify with `pnpm eval` (rendered → GBNF validator) that examples still parse.
 
-## Completed (ARCH_DIFF.md Phases 1–6)
+## 2. Add `pnpm run grammar:preview` → `.preview.grammar`
+- Create `scripts/preview-grammar.ts` that loads each grammar producer (`toolsToGbnf`, `toolsToGbnfWithThink`, `toolsToGbnfText`, `toolsToGbnfZod`) and writes outputs to `.preview.grammar` (or one file per variant to `.preview.grammar.{tool,think,text,zod}`).
+- Add the script to `package.json`.
 
-- MessagePart, ResponseTemplate, StopReason (protocol layer)
-- Tool class with Zod schemas, grammar(), exec()
-- Agent class with tools + instructions + examples
-- Session data class + SessionManager persistence bridge
-- Model→Engine rename + RwkvEngineAdapter
-- CacheProtocol + LocalInferenceClient + LocalServerControl
-- AgentLoop holds Session; 11 callers migrated
-- GatewayControl class; CLI always routes through gateway + HttpModel
+## 3. Tests for grammar — three test files
+- `src/grammars/grammar-valid.test.ts` — compile each grammar with `schoolmarm` (install dep if missing under `native/rwkv-bindings` or add to root `devDependencies`); verify `Grammar.new(gbnf)` succeeds for every variant + per-agent grammar.
+- `src/grammars/grammar-invalid.test.ts` — feed malformed GBNF (missing `::=`, dangling reference, bad rule name with `-`); expect compile throw / parser error.
+- `src/grammars/grammar-gen.test.ts` — feed a fixture of expected tool-call JSON text into `GrammarState` and assert the allowed-mask covers the JSON and excludes arbitrary prose; verify the same for the think-block+text+call root.
+- Wire each into `package.json` scripts: `test:grammar:valid`, `test:grammar:invalid`, `test:grammar:gen`.
 
-## Priorities (P0 → P3)
+## 4. Add `pnpm run inference:start`
+- A simple script that starts the gateway/inference engine in **daemon mode (nohup, detached)** so it survives gateway-restart cycles invoked from other tooling.
+- Implementation: `bash scripts/start-inference.sh` or an equivalent `pnpm` script that uses `nohup tsx src/cli.ts gateway > .inference.log 2>&1 &`, writes PID to `.inference.pid`, and prints confirmation. Critically, it does NOT tie the process to the gateway-start script's shell.
+- Add a `inference:stop`, `inference:status`, `inference:logs` to mirror the gateway controls.
 
-### P0 — stabilize the inference loop
+## 5. Envoy examples — clarify role + seedlings
+- Add **3-4 new examples** to `src/agents/envoy/examples.ts` so the model sees multiple "user gives a vague intent → envoy extracts seedlings (a premise + ~3 character/place/faction seeds) and delegates the rest as a task to storyteller, **not** the full outline".
+- Examples should demonstrate:
+  - The envoy DOES NOT write the story itself.
+  - The envoy DOES NOT micro-manage the storyline.
+  - The envoy extracts storyline seedlings from user input and passes them as a `task` string to the storyteller.
+- Add a sentence to `instructions.mdx` clarifying "you delegate, you don't write — pass seedlings to spark the scene; the storyteller expands and structures the world."
 
-1. **Fix `pnpm eval:live`.** Still exits instantly in ~2s with empty assistant output. Likely a gateway readiness or HttpModel streaming issue. Add a `--mock-live` flag that uses MockModel for live checks to validate the eval harness itself, then diagnose the real model path separately.
-2. **Reproduce & close empty-generation bug.** ✅ Root cause: grammar `root ::= ws? (...)*` allowed zero content blocks — model emitted whitespace and grammar signaled completion. Fixed: `*` → `+`. Live eval now generates 315 tokens vs 1. Still needs prompt tuning to make model call tools.
-3. **Tool-response placement bake-off.** ✅ Done — both placements pass oracle 29/29 and trace 23/23. `block` remains default (model sees tool results; `inline` skips feeding them back). Benchmark: `pnpm bench:placement`.
-4. **Grammar regression tests in CI.** Oracle eval (29/29) and `test:trace` (23/23) already wire GBNF. Document as the regression baseline; consider a GitHub Actions workflow.
-
-### P1 — broaden format experiments
-
-5. **`SUBAGENT_WRAP=xml` bake-off.** Compare traces with vs without wrapping; decide whether `<subagent name="X">` becomes default or stays env-gated.
-6. **Multi-template renderers.** Add a `compact` template (no leading `\t` indentation) to `example-template.ts` so the same data renders in both layouts — verifies tag-level invariants.
-7. **Test-mode tool-result introspection.** Capture every `ToolResult` into a structured sidecar (`sessions/<id>/tool-results.jsonl`) so eval can diff tool-result outcomes against mock expectations.
-
-### P2 — channel + transport
-
-8. **Migrate legacy GatewayServer ad-hoc routes to oRPC.** The `/v1/generate`, `/v1/stream`, `/chat`, etc. endpoints still exist for backward compat. Remove them; the only route should be `/rpc/*` (AGENTS.md marks these as ⏳).
-9. **Multi-channel broadcast test.** Webapp + TUI + CLI connected to same gateway must see the same conversation. Add a `test:trace`-style fixture that runs two channels in parallel and asserts both received every token.
-10. **Per-session sandbox in `--no-gateway` mode.** Sandbox is currently eval-only. Lift the sandbox helper out of `EvalController`.
-
-### P3 — larger initiatives (express intent, not hours)
-
-11. **MoSE stubs → real implementation.** `NativeRwkvModel.mose` (createExpert, apply, segmentRoute) are no-ops. Reference web-rwkv's axum example and link them to the binding.
-12. **LoRA adapter stubs → real implementation.** Same as MoSE — `loraMgr` methods are no-ops. Wire through to web-rwkv's LoRA C API.
-13. **GatewayControl integration tests.** Start/stop/restart lifecycle, health polling, reconnect after gateway restart.
-14. **Skills system.** Move `agents/{envoy,storyteller}` toward `skills/<name>/{index.ts,examples.ts,tools/*.ts}` so agents compose of skills.
-15. **Long-term memory.** State archiving + retrieval via MoSE blend back into the live session.
-16. **Cron / scheduled tasks.** Schedule a `tell` or `agent` invocation against the gateway at a scheduled time.
-
-## Process
-
-- After completing items, update this file and mark progress in the eval trace.
-- Keep `ARCH.md` in sync with any new component or contract change.
-- Avoid editing `docs/`; active docs are `ARCH.md`, `AGENTS.md`, `ARCH_DIFF.md`.
-
-## Success criteria for P0 close
-
-- `pnpm eval` → 29/29 PASS.
-- `pnpm test:trace` → 23/23 PASS.
-- `pnpm eval:live` (gateway up) → no empty assistant turns (✅ fixed); model still needs prompt tuning to reliably call tools.
-- `pnpm typecheck` → clean.
+## Tests
+Run after each chunk:
+- `pnpm typecheck`
+- `pnpm eval` (40 oracle checks — survives as long as examples are still GBNF-valid)
+- new grammar test scripts
