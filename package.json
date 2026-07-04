@@ -31,10 +31,10 @@
     "test:grammar:valid": "tsx src/grammars/grammar-valid.test.ts",
     "test:grammar:invalid": "tsx src/grammars/grammar-invalid.test.ts",
     "test:grammar:gen": "tsx src/grammars/grammar-gen.test.ts",
-    "inference:start": "nohup tsx src/cli.ts gateway > .inference.log 2>&1 & echo $! > .inference.pid && echo 'Inference started PID '$(cat .inference.pid)",
-    "inference:stop": "kill $(cat .inference.pid 2>/dev/null) 2>/dev/null; rm -f .inference.pid; echo 'Inference stopped'",
+    "inference:start": "bash scripts/inference-start.sh",
+    "inference:stop": "if [ -f .inference.pid ]; then PID=$(cat .inference.pid); kill $PID 2>/dev/null && echo \"Inference stopped (PID $PID)\" || echo \"Inference process $PID not running\"; rm -f .inference.pid; else echo 'Inference not running'; fi",
     "inference:restart": "pnpm inference:stop; sleep 1; pnpm inference:start",
-    "inference:status": "if [ -f .inference.pid ] && kill -0 $(cat .inference.pid) 2>/dev/null; then echo 'Inference running PID '$(cat .inference.pid); else echo 'Inference not running'; fi",
+    "inference:status": "if [ -f .inference.pid ] && kill -0 $(cat .inference.pid) 2>/dev/null; then echo 'Inference running — PID '$(cat .inference.pid)', port 3130, log: .inference.log'; else echo 'Inference not running'; fi",
     "inference:logs": "cat .inference.log",
     "inference:tail-logs": "tail -f .inference.log"
   },
