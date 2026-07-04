@@ -1,40 +1,53 @@
 # Next Steps
 
-Forward-looking plan beyond `TODO.md`. Items here are deliberate, prioritized, and reachable within a quarter (not the same horizon as `PLAN.md`).
+Forward-looking plan after the 6-phase architecture refactoring (ARCH.md, commits 81e0d88–c261cc4). Items here are deliberate, prioritized, and reachable within a quarter.
+
+## Completed (ARCH_DIFF.md Phases 1–6)
+
+- MessagePart, ResponseTemplate, StopReason (protocol layer)
+- Tool class with Zod schemas, grammar(), exec()
+- Agent class with tools + instructions + examples
+- Session data class + SessionManager persistence bridge
+- Model→Engine rename + RwkvEngineAdapter
+- CacheProtocol + LocalInferenceClient + LocalServerControl
+- AgentLoop holds Session; 11 callers migrated
+- GatewayControl class; CLI always routes through gateway + HttpModel
 
 ## Priorities (P0 → P3)
 
 ### P0 — stabilize the inference loop
 
-1. **Reproduce & close bug #1 with live model.** Restart gateway under the new `loop.ts` guard, run `pnpm eval:live`, capture trace. Every empty generation must now (a) write a `[agent-loop] WARN:` line and (b) abort cleanly. If the underlying cause is a stop-sequence-eating-prompt issue, narrow `STOP_SEQ` for the live eval.
-2. **Default `TOOL_RESPONSE_PLACEMENT=block` benchmark.** Already the default. Add a `block` vs `inline` benchmark suite that runs both placements over the oracle's 27 checks and live's 16 checks. Promote whichever wins to default. Until then, `block` stays default.
-3. **Grammar tests in CI.** `pnpm eval` oracle and `pnpm test:trace` already wire grammars; document them as the regression baseline and run on every commit.
+1. **Fix `pnpm eval:live`.** Still exits instantly in ~2s with empty assistant output. Likely a gateway readiness or HttpModel streaming issue. Add a `--mock-live` flag that uses MockModel for live checks to validate the eval harness itself, then diagnose the real model path separately.
+2. **Reproduce & close empty-generation bug.** The `[agent-loop] WARN:` guard is in place but never triggered by oracle mode. Run live, capture trace, fix the underlying stop-sequence or state-corruption cause.
+3. **Tool-response placement bake-off.** ✅ Done — both placements pass oracle 29/29 and trace 23/23. `block` remains default (model sees tool results; `inline` skips feeding them back). Benchmark: `pnpm bench:placement`.
+4. **Grammar regression tests in CI.** Oracle eval (29/29) and `test:trace` (23/23) already wire GBNF. Document as the regression baseline; consider a GitHub Actions workflow.
 
 ### P1 — broaden format experiments
 
-4. **`SUBAGENT_WRAP=xml` bake-off.** Compare traces with vs without wrapping; decide whether `<subagent name="X">` becomes default or stays env-gated. Watch for parser interference: any third-party trace viewer must still recognize tool calls inline within a wrapped block.
-5. **Multi-template renderers.** Add a `compact` template (no leading `\t` indentation) to `example-template.ts` so the same data renders in both layouts — verifies tag-level invariants.
-6. **Test-mode tool-result introspection.** Capture every `ToolResult` that ever crosses the loop into a structured sidecar (`sessions/<id>/tool-results.jsonl`) so eval can diff tool-result outcomes against mock expectations.
+5. **`SUBAGENT_WRAP=xml` bake-off.** Compare traces with vs without wrapping; decide whether `<subagent name="X">` becomes default or stays env-gated.
+6. **Multi-template renderers.** Add a `compact` template (no leading `\t` indentation) to `example-template.ts` so the same data renders in both layouts — verifies tag-level invariants.
+7. **Test-mode tool-result introspection.** Capture every `ToolResult` into a structured sidecar (`sessions/<id>/tool-results.jsonl`) so eval can diff tool-result outcomes against mock expectations.
 
 ### P2 — channel + transport
 
-7. **oRPC over WebSocket fully.** Currently the gateway has ad-hoc REST endpoints left over from before oRPC. Migrate the last of them to oRPC procedures (the WS broadcast lives outside oRPC — document the gap, then consider an `eventStream` helper or an SSE-callback wrapper).
-8. **Multi-channel broadcast.** Webapp + TUI + CLI connected to a single gateway must see the same conversation. Currently it works because channels share the gateway round-trips; add a real test (`test:trace`–style fixture) that runs two channels in parallel and asserts both received every token.
-9. **Per-session sandbox in `--no-gateway` mode.** Sandbox is currently eval-only. If the user runs a CLI story session with `--workspace=...`, the same should apply. Lift the sandbox helper out of `EvalController`.
+8. **Migrate legacy GatewayServer ad-hoc routes to oRPC.** The `/v1/generate`, `/v1/stream`, `/chat`, etc. endpoints still exist for backward compat. Remove them; the only route should be `/rpc/*` (AGENTS.md marks these as ⏳).
+9. **Multi-channel broadcast test.** Webapp + TUI + CLI connected to same gateway must see the same conversation. Add a `test:trace`-style fixture that runs two channels in parallel and asserts both received every token.
+10. **Per-session sandbox in `--no-gateway` mode.** Sandbox is currently eval-only. Lift the sandbox helper out of `EvalController`.
 
 ### P3 — larger initiatives (express intent, not hours)
 
-10. **Skills system.** Move `agents/{envoy,storyteller,coder}` toward `skills/<name>/{index.ts,examples.ts,tools/*.ts}` so agents compose of skills. Keep `agents/envoy` as the user-facing shim.
-11. **Long-term memory.** State archiving + retrieval via MoSE blend back into the live session. Pre-req for any multi-week project.
-12. **Cron / scheduled tasks.** Schedule a `tell` or `agent` invocation against the gateway at a `cron` time. Hooks into the existing route handlers; the orchestration is the new piece.
+11. **MoSE stubs → real implementation.** `NativeRwkvModel.mose` (createExpert, apply, segmentRoute) are no-ops. Reference web-rwkv's axum example and link them to the binding.
+12. **LoRA adapter stubs → real implementation.** Same as MoSE — `loraMgr` methods are no-ops. Wire through to web-rwkv's LoRA C API.
+13. **GatewayControl integration tests.** Start/stop/restart lifecycle, health polling, reconnect after gateway restart.
+14. **Skills system.** Move `agents/{envoy,storyteller}` toward `skills/<name>/{index.ts,examples.ts,tools/*.ts}` so agents compose of skills.
+15. **Long-term memory.** State archiving + retrieval via MoSE blend back into the live session.
+16. **Cron / scheduled tasks.** Schedule a `tell` or `agent` invocation against the gateway at a scheduled time.
 
----
+## Process
 
-## Process changes
-
-- After completing items, **update `TODO_PROGRESS.md` and bump the `next_steps` section here** — these two docs are paired with `PLAN.md` (arch roadmap) and act as the rolling ledger.
-- Create `ARCHITECTURE.mdx` from new files every time a new component is added (matching diagram style + a mermaid sequence for the touch point).
-- Avoid editing `docs/`; if legacy doc content is worth keeping, it must move into the active set (`ARCHITECTURE.mdx`, `AGENTS.md`, or a topic-led `docs/active/<topic>.md`).
+- After completing items, update this file and mark progress in the eval trace.
+- Keep `ARCH.md` in sync with any new component or contract change.
+- Avoid editing `docs/`; active docs are `ARCH.md`, `AGENTS.md`, `ARCH_DIFF.md`.
 
 ## Success criteria for P0 close
 

@@ -23,6 +23,7 @@
     "eval:live": "tsx src/eval/story-creation.eval.ts --live",
     "build:native": "cd native/rwkv-bindings/rwkv-bindings && cargo build --release && cp target/release/librwkv_bindings.so ../../rwkv-bindings.linux-x64-gnu.node",
     "typecheck": "tsc --noEmit",
+    "bench:placement": "bash scripts/bench-placement.sh",
     "test:trace": "tsx src/eval/trace-writer.test.ts",
     "convert:rwkv": "python3 scripts/convert-rwkv.py",
     "dev:setup": "pnpm install && pnpm build:native"
