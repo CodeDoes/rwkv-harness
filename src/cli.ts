@@ -11,6 +11,7 @@ import { StorytellerAgent } from "./agents/storyteller/index.ts"
 import { AgentLoop } from "./agents/loop.ts"
 import { SessionHost } from "./session/session-host.ts"
 import { GatewayServer } from "./gateway/server.ts"
+import { GatewayControl } from "./gateway/control.ts"
 import { Tui } from "./tui/index.ts"
 import { GenerateOpts, DEFAULT_GEN_OPTS } from "./types.ts"
 
@@ -63,17 +64,32 @@ async function tryGatewayAuto(gatewayPort: number): Promise<Engine | null> {
   return null
 }
 
-async function createModel(modelPath: string, stateDir: string): Promise<Engine> {
+async function createModel(modelPath: string, stateDir: string, isGateway = false): Promise<Engine> {
   if (engineUrl) {
     console.error(`Model: remote (${engineUrl})`)
     return new HttpModel(engineUrl)
   }
+  // Gateway mode: load native model directly
+  if (isGateway) {
+    console.error(`Model: native RWKV (${path.basename(modelPath)})`)
+    return new NativeRwkvModel(modelPath, stateDir)
+  }
+  // Client mode: always use gateway
   if (!noGateway) {
     const gw = await tryGatewayAuto(gatewayAutoPort)
     if (gw) return gw
   }
-  console.error(`Model: native RWKV (${path.basename(modelPath)})`)
-  return new NativeRwkvModel(modelPath, stateDir)
+  // Auto-start gateway via GatewayControl
+  console.error(`Gateway: starting on :${gatewayAutoPort}...`)
+  const gwCtrl = new GatewayControl({
+    modelPath,
+    port: gatewayAutoPort,
+    gpu: gpuArg,
+    loraPaths,
+  })
+  await gwCtrl.start()
+  console.error(`Gateway: ready on :${gatewayAutoPort}`)
+  return new HttpModel(gwCtrl.url)
 }
 
 async function runGateway() {
@@ -88,7 +104,7 @@ async function runGateway() {
   const gwStateDir = path.join(SESSIONS_DIR, "_gateway")
   console.error(`RWKV Gateway | port: ${gatewayPort} | model: ${path.basename(modelPath)}`)
 
-  const model = await createModel(modelPath, gwStateDir)
+  const model = await createModel(modelPath, gwStateDir, true)
   const host = new SessionHost(model, gwStateDir)
   const server = new GatewayServer(host, WEBAPP_DIR, modelPath)
 
