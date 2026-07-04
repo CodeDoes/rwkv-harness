@@ -102,8 +102,8 @@ export class EvalController {
             saveSession: () => storyMgr.saveFromSession(storySession),
           })
 
-          // Log the sub-agent's actual input/output to trace — no special wrappers,
-          // just intercept system/user before the call and assistant/tool from callbacks.
+          // Wrap sub-agent blocks in <subagent> so the trace shows delegation boundaries.
+          this.traceWriter.raw(`<subagent name="${agentName}" task="${taskText}">`)
           this.traceWriter.write("system", storyteller.instructions)
           this.traceWriter.write("user", taskText)
 
@@ -123,6 +123,7 @@ export class EvalController {
             onToken: (t: string) => process.stdout.write(t),
           }, { temperature: 0.5, maxTokens: 2048 })
           if (!lastAssistantText) lastAssistantText = subResult
+          this.traceWriter.raw(`</subagent>`)
 
           await this.model.loadCheckpoint("envoy-pause")
 

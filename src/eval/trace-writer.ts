@@ -89,6 +89,14 @@ export class TraceWriter {
     if (role !== "meta") this.emit("")
   }
 
+  /** Write a raw line (no role prefix) — for document-level wrappers like `<subagent>`. */
+  raw(line: string) {
+    if (this.fd === null) return
+    if (this.lineOpen) this.endLine()
+    this.emit(line)
+    this.emit("")
+  }
+
   verification(checks: { name: string; pass: boolean }[]) {
     this.emit("# verification")
     for (const c of checks) {
