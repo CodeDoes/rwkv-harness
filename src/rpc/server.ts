@@ -56,6 +56,8 @@ function createRouter(model: Engine, host: SessionHost, modelPath: string, model
         sessionId, prompt, opts, blend, segments,
         onToken: (token) => {
           queue.push(token)
+          // Log every token to stderr so gateway log shows streaming
+          process.stderr.write(`> ${token}`)
           resolve?.()
           resolve = null
         },

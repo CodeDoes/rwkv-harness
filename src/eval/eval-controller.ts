@@ -108,15 +108,27 @@ export class EvalController {
           this.traceWriter.write("user", taskText)
 
           let lastAssistantText = ""
+          let subagentFirstToken = true
           const subResult = await subLoop.run(taskText, {
-            onRawOutput: (raw) => {
-              this.traceWriter.write("assistant", raw)
+            onRawOutput: (_raw) => {
+              if (!subagentFirstToken) {
+                this.traceWriter.endLine()
+                this.traceWriter.separator()
+                subagentFirstToken = true
+              }
             },
             onText: (t: string) => {
               storytellerOutput += t
               lastAssistantText = t
             },
-            onToken: (t: string) => process.stdout.write(t),
+            onToken: (t: string) => {
+              if (subagentFirstToken) {
+                this.traceWriter.beginLine("assistant:\n")
+                subagentFirstToken = false
+              }
+              this.traceWriter.append(t)
+              process.stdout.write(t)
+            },
           }, { temperature: 0.5, maxTokens: 2048 })
           if (!lastAssistantText) lastAssistantText = subResult
           this.traceWriter.raw(`</subagent>`)
@@ -141,16 +153,28 @@ export class EvalController {
     })
 
     this.traceWriter.write("user", userInput)
+    let envoyFirstToken = true
     let envoyRawCaptured = false
     const finalText = await agentLoop.run(userInput, {
       onRawOutput: (raw) => {
+        if (!envoyFirstToken) {
+          this.traceWriter.endLine()
+          this.traceWriter.separator()
+          envoyFirstToken = true
+        }
         if (!envoyRawCaptured) {
-          this.traceWriter.write("assistant", raw)
           envoyRawCaptured = true
         }
       },
       onText: (t: string) => process.stdout.write(t),
-      onToken: (t: string) => process.stdout.write(t),
+      onToken: (t: string) => {
+        if (envoyFirstToken) {
+          this.traceWriter.beginLine("assistant:\n")
+          envoyFirstToken = false
+        }
+        this.traceWriter.append(t)
+        process.stdout.write(t)
+      },
     }, { maxTokens: 500, temperature: 0.5 })
 
     const storyDir = this.findStoryDir(this.baseDir)

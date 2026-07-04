@@ -89,6 +89,13 @@ export class TraceWriter {
     if (role !== "meta") this.emit("")
   }
 
+  /** Write a blank-line separator between role blocks. */
+  separator() {
+    if (this.fd === null) return
+    fs.writeSync(this.fd, "\n")
+    fs.fsyncSync(this.fd)
+  }
+
   /** Write a raw line (no role prefix) — for document-level wrappers like `<subagent>`. */
   raw(line: string) {
     if (this.fd === null) return

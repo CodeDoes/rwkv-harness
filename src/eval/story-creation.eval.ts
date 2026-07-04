@@ -2,6 +2,7 @@
 import * as fs from "fs"
 import * as path from "path"
 import * as os from "os"
+import { spawn } from "child_process"
 import { fileURLToPath } from "url"
 import { EvalController, type Check } from "./eval-controller.ts"
 import { loadAgent } from "../agents/agent-loader.ts"
@@ -153,43 +154,45 @@ const trace = new TraceWriter("oracle").open({ mode: "oracle", baseDir })
 // ── Live mode ──
 
 /**
- * Poll a gateway's `/rpc/health` until it reports `status: "ok"`.
- * Returns the `HttpModel` to use, or `null` if no gateway is reachable.
+ * Wait until the gateway's `/rpc/health` reports `status: "ok"`.
+ * Returns the `HttpModel` to use, or `null` if the deadline expires.
  *
- * - If the first probe fails, returns null (gateway not running).
- * - If the first probe says `starting`, polls every `pollMs` until "ok" or
- *   the total wait exceeds `waitMs`.
- * - If the first probe already says "ok", returns immediately.
+ * Connection errors (ECONNREFUSED, DNS failures) are treated as "not yet up"
+ * rather than "dead" — keeps retrying until the deadline. HTTP errors (500,
+ * etc.) are also treated as "still loading".
  */
 async function tryConnectGateway(port = 3030, opts: { waitMs?: number; pollMs?: number } = {}): Promise<Engine | null> {
   const { waitMs = 5 * 60 * 1000, pollMs = 2000 } = opts
   const url = `http://127.0.0.1:${port}/rpc/health`
   const deadline = Date.now() + waitMs
+  let attempt = 0
 
   for (;;) {
+    attempt++
+    const remaining = Math.max(0, deadline - Date.now())
+    if (remaining === 0) return null
+
     try {
-      const r = await fetch(url, { signal: AbortSignal.timeout(1500) })
+      const r = await fetch(url, { signal: AbortSignal.timeout(3000) })
       if (r.ok) {
         const body = await r.json().catch(() => ({})) as { status?: string; stateSize?: number }
         if (body.status === "ok") {
           console.error(`Gateway ready on :${port} (stateSize=${body.stateSize ?? 0})`)
           return new HttpModel(`http://127.0.0.1:${port}`)
         }
-        if (body.status === "starting") {
-          const remaining = Math.max(0, deadline - Date.now())
-          console.error(`Gateway starting on :${port} (model still loading) — waiting${remaining ? ` up to ${Math.ceil(remaining / 1000)}s` : ""}...`)
-          if (remaining === 0) return null
-          await new Promise((r) => setTimeout(r, Math.min(pollMs, remaining)))
-          continue
+        if (attempt === 1 || (attempt % 5 === 0)) {
+          console.error(`Gateway on :${port} (status=${body.status ?? r.status}), retrying...`)
         }
-        // Unexpected body shape — assume it's reachable and let the caller try.
-        console.error(`Gateway responding on :${port} (status=${body.status ?? "?"}), connecting...`)
-        return new HttpModel(`http://127.0.0.1:${port}`)
       }
     } catch {
-      // No gateway at all
-      return null
+      if (attempt === 1 || (attempt % 5 === 0)) {
+        console.error(`Gateway not yet reachable on :${port}, retrying...`)
+      }
     }
+
+    // Exponential backoff: 2s, 4s, 8s, 16s, then cap at 16s
+    const delay = Math.min(pollMs * Math.pow(2, attempt - 1), 16_000)
+    await new Promise((r) => setTimeout(r, Math.min(delay, remaining)))
   }
 }
 
@@ -198,13 +201,30 @@ async function runLive(baseDir: string, args: string[]): Promise<boolean> {
 
   const modelPath = EvalController.resolveModelPath(args)
   const gpu = EvalController.resolveGpu(args)
+  const projectRoot = path.resolve(import.meta.dirname, "../..")
 
   console.error(`GPU: ${gpu}`)
   console.error(`Workspace: ${baseDir}`)
 
-  const model = await tryConnectGateway()
+  // Auto-start gateway if not running
+  let gatewayProc: import("child_process").ChildProcess | null = null
+  let model = await tryConnectGateway()
   if (!model) {
-    throw new Error("Gateway not running on :3030. Start with: pnpm gateway")
+    console.error("Starting gateway...")
+    gatewayProc = spawn("pnpm", ["gateway"], {
+      cwd: projectRoot,
+      stdio: "pipe",
+      detached: false,
+      env: { ...process.env, NODE_ENV: "production" },
+    })
+    gatewayProc.stdout?.pipe(process.stdout)
+    gatewayProc.stderr?.pipe(process.stderr)
+    // Wait for gateway health
+    model = await tryConnectGateway(void 0, { waitMs: 5 * 60 * 1000 })
+    if (!model) {
+      gatewayProc.kill()
+      throw new Error("Gateway failed to start within 5 minutes")
+    }
   }
 
   const originalCwd = process.cwd()
@@ -276,6 +296,10 @@ async function runLive(baseDir: string, args: string[]): Promise<boolean> {
   console.error(`\nTrace: ${trace.path}`)
   process.chdir(originalCwd)
   await model.dispose()
+  if (gatewayProc) {
+    gatewayProc.kill()
+    console.error("Gateway stopped")
+  }
   return allPass
 }
 
