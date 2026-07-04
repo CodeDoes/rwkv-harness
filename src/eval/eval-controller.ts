@@ -105,6 +105,9 @@ export class EvalController {
             saveSession: () => storyMgr.saveFromSession(storySession),
           })
 
+          // Mark sub-agent entry in the trace before its output.
+          this.traceWriter.write("meta", `── enter subagent "${agentName}" ──`)
+
           // Capture the sub-agent's last assistant block's text — that becomes
           // the spawn_agent tool response, surfaced to the parent for its
           // next inference turn. Mirror narrated assistant text into the
@@ -126,6 +129,9 @@ export class EvalController {
             onToken: (t: string) => process.stdout.write(t),
           }, { temperature: 0.5, maxTokens: 2048 })
           if (!lastAssistantText) lastAssistantText = subResult
+
+          // Mark sub-agent exit in the trace.
+          this.traceWriter.write("meta", `── exit subagent "${agentName}" ──`)
 
           await this.model.loadCheckpoint("envoy-pause")
 
