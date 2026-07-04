@@ -18,7 +18,7 @@ Forward-looking plan after the 6-phase architecture refactoring (ARCH.md, commit
 ### P0 — stabilize the inference loop
 
 1. **Fix `pnpm eval:live`.** Still exits instantly in ~2s with empty assistant output. Likely a gateway readiness or HttpModel streaming issue. Add a `--mock-live` flag that uses MockModel for live checks to validate the eval harness itself, then diagnose the real model path separately.
-2. **Reproduce & close empty-generation bug.** The `[agent-loop] WARN:` guard is in place but never triggered by oracle mode. Run live, capture trace, fix the underlying stop-sequence or state-corruption cause.
+2. **Reproduce & close empty-generation bug.** ✅ Root cause: grammar `root ::= ws? (...)*` allowed zero content blocks — model emitted whitespace and grammar signaled completion. Fixed: `*` → `+`. Live eval now generates 315 tokens vs 1. Still needs prompt tuning to make model call tools.
 3. **Tool-response placement bake-off.** ✅ Done — both placements pass oracle 29/29 and trace 23/23. `block` remains default (model sees tool results; `inline` skips feeding them back). Benchmark: `pnpm bench:placement`.
 4. **Grammar regression tests in CI.** Oracle eval (29/29) and `test:trace` (23/23) already wire GBNF. Document as the regression baseline; consider a GitHub Actions workflow.
 
@@ -53,5 +53,5 @@ Forward-looking plan after the 6-phase architecture refactoring (ARCH.md, commit
 
 - `pnpm eval` → 29/29 PASS.
 - `pnpm test:trace` → 23/23 PASS.
-- `pnpm eval:live` (gateway up) → no empty assistant turns; every `<tool_call>` in trace is followed by `<tool_response>`.
+- `pnpm eval:live` (gateway up) → no empty assistant turns (✅ fixed); model still needs prompt tuning to reliably call tools.
 - `pnpm typecheck` → clean.
