@@ -38,7 +38,7 @@ export class AgentLoop {
   private session: Session
   private maxDepth: number
   private config: Required<AgentLoopConfig>
-  private sessionId: string
+  sessionId: string
   private initPromise: Promise<void>
   private lastCallSignatures: string[] = []
   private template: ReturnType<typeof getTemplate>
@@ -111,6 +111,16 @@ export class AgentLoop {
       const endedWithUser = !endedWithToolCall && (raw.includes("\n\nUser:") || raw.endsWith("\x03"))
       callbacks?.onRawOutput?.(raw)
 
+      // Runtime output format check — surface bad patterns immediately
+      const firstLine = raw.split("\n")[0]
+      if (firstLine && !firstLine.startsWith("\t") && firstLine.trim().length > 0) {
+        console.warn(`[agent-loop] WARN: output lacks \\t prefix: ${JSON.stringify(firstLine.slice(0, 40))}`)
+      }
+      const badPatternMatch = raw.match(/^(\t[^\n]*)?\n\t(system:|User:|Assistant:)/mi)
+      if (badPatternMatch) {
+        console.warn(`[agent-loop] WARN: role/instruction echo detected: ${JSON.stringify(badPatternMatch[0].slice(0, 40))}`)
+      }
+
       // Empty stream guard: the model emitted no parseable tokens. The grammar
       // and stop sequences should always admit at least one token of output,
       // so an empty `raw` is a model failure (likely stale state, corrupted
@@ -158,9 +168,9 @@ export class AgentLoop {
       // Re-sending old text double-counts in the RNN state and corrupts it.
       // The state already ends with `</tool_call>`. We append only the delta:
       //   "block"  — own User turn:  `\n\nUser:\n<tool_response>…</tool_response>\n\nAssistant:`
-      //   "inline" — direct follow-up: `\n<tool_response>…</tool_response>\n\nAssistant:`
+      //   "inline" — direct follow-up: `\n\t<tool_response>…</tool_response>` (same assistant turn, per EXAMPLE.md)
       if (cfg.toolResponse.placement === "inline") {
-        fullPrompt = "\n" + resultsBlock.trim() + cfg.sep + formatAssistantRole()
+        fullPrompt = "\n" + resultsBlock.trim()
       } else {
         fullPrompt =
           cfg.sep + formatToolResponseRole() + resultsBlock.trim() + cfg.sep + formatAssistantRole()
@@ -183,8 +193,8 @@ export class AgentLoop {
         `${p.name}${p.required ? "" : "?"}: ${p.type}`
       ).join(", ")
       return `- ${t.name}(${params}) — ${t.description}`
-    }).join("\n")
-    return clean("System: " + this.config.systemPrompt + "\n\nTools:\n" + tools)
+    }).join("\n\t\t")
+    return clean("System:\n\t" + this.config.systemPrompt.replace(/\n/g, "\n\t") + "\n\t<tools>\n\t\t" + tools + "\n\t</tools>")
   }
 
   private isRepeatedLoop(call: ToolCall, depth: number): boolean {

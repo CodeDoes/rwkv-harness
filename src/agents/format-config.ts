@@ -22,80 +22,79 @@
  * Code reads `getFormatConfig()` — never the constants directly.
  */
 
-export type ToolResponsePlacement = "block" | "inline"
+export type ToolResponsePlacement = "block" | "inline";
 
-export type ToolResponseTagStyle = "default" | "bare" | "indent-stripped"
+export type ToolResponseTagStyle = "default" | "bare" | "indent-stripped";
 
-export type SubagentWrap = "xml" | "none"
+export type SubagentWrap = "xml" | "none";
 
-export type RoleMarker = "User:" | "Assistant:"
+export type RoleMarker = "User:" | "Assistant:";
 
 export interface StopSequences {
-  readonly primary: string
-  readonly list: string[]
+  readonly primary: string;
+  readonly list: string[];
 }
 
 export interface FormatConfig {
   /** Blank-line indicator inserted between prompt turns. */
-  readonly sep: string
+  readonly sep: string;
   /** Generation stop sequences. First entry is the primary stop. */
-  readonly stops: StopSequences
+  readonly stops: StopSequences;
   /** Role marker prefixes. */
-  readonly userOpen: RoleMarker
-  readonly assistantOpen: RoleMarker
+  readonly userOpen: RoleMarker;
+  readonly assistantOpen: RoleMarker;
   /** Tool-response tag controls. */
   readonly toolResponse: {
-    readonly openTag: string
-    readonly closeTag: string
-    readonly placement: ToolResponsePlacement
-  }
+    readonly openTag: string;
+    readonly closeTag: string;
+    readonly placement: ToolResponsePlacement;
+  };
   /** Subagent wrapping for eval traces / multi-agent prompts. */
-  readonly subagentWrap: SubagentWrap
+  readonly subagentWrap: SubagentWrap;
   /** Body indentation style. */
-  readonly indentStyle: "all-indented" | "tags-flush"
+  readonly indentStyle: "all-indented" | "tags-flush";
   /** Tool-result payload truncation length (chars). */
-  readonly toolResultMaxChars: number
+  readonly toolResultMaxChars: number;
 }
 
 function readEnv(name: string): string | undefined {
-  const v = process.env[name]?.trim()
-  return v ? v : undefined
+  const v = process.env[name]?.trim();
+  return v ? v : undefined;
 }
 
 function resolveToolResponsePlacement(env?: string): ToolResponsePlacement {
-  return env === "inline" ? "inline" : "block"
+  return env === "inline" ? "inline" : "block";
 }
 
 function resolveSubagentWrap(env?: string): SubagentWrap {
-  return env === "xml" ? "xml" : "none"
+  return env === "xml" ? "xml" : "none";
 }
 
 function resolveIndentStyle(env?: string): "all-indented" | "tags-flush" {
-  return env === "tags-flush" ? "tags-flush" : "all-indented"
+  return env === "tags-flush" ? "tags-flush" : "all-indented";
 }
 
 function resolveSep(env?: string): string {
-  if (!env) return "\n\n"
-  if (env === "\\x00") return "\x00"
-  return env
+  if (!env) return "\n\n";
+  return env;
 }
 
 function resolveStops(env?: string): StopSequences {
-  const defaultList = ["</tool_call>", "\n\nUser:", "\x03"]
-  if (!env) return { primary: defaultList[0], list: [...defaultList] }
+  const defaultList = ["</tool_call>", "\n\nUser:", "\x03"];
+  if (!env) return { primary: defaultList[0], list: [...defaultList] };
   const parsed = env.split(",").map((s) => {
-    const trimmed = s.trim()
-    if (trimmed === "x03") return "\x03"
-    if (trimmed === "User:") return "\n\nUser:"
-    return trimmed
-  })
-  return { primary: parsed[0] ?? defaultList[0], list: parsed }
+    const trimmed = s.trim();
+    if (trimmed === "x03") return "\x03";
+    if (trimmed === "User:") return "\n\nUser:";
+    return trimmed;
+  });
+  return { primary: parsed[0] ?? defaultList[0], list: parsed };
 }
 
-let cached: FormatConfig | null = null
+let cached: FormatConfig | null = null;
 
 export function getFormatConfig(): FormatConfig {
-  if (cached) return cached
+  if (cached) return cached;
   cached = Object.freeze({
     sep: resolveSep(readEnv("SEP")),
     stops: Object.freeze(resolveStops(readEnv("STOP_SEQ"))),
@@ -104,76 +103,85 @@ export function getFormatConfig(): FormatConfig {
     toolResponse: Object.freeze({
       openTag: "<tool_response>",
       closeTag: "</tool_response>",
-      placement: resolveToolResponsePlacement(readEnv("TOOL_RESPONSE_PLACEMENT")),
+      placement: resolveToolResponsePlacement(
+        readEnv("TOOL_RESPONSE_PLACEMENT"),
+      ),
     }),
     subagentWrap: resolveSubagentWrap(readEnv("SUBAGENT_WRAP")),
     indentStyle: resolveIndentStyle(readEnv("INDENT_STYLE")),
     toolResultMaxChars: 2000,
-  }) as FormatConfig
-  return cached
+  }) as FormatConfig;
+  return cached;
 }
 
 /** Test-only: rebuild the cached config (e.g. after a process env change). */
 export function resetFormatConfig(): void {
-  cached = null
+  cached = null;
 }
 
 /// ── Render helpers ─────────────────────────────
 
-export function tag(name: string, style?: "all-indented" | "tags-flush"): string {
-  return (style ?? getFormatConfig().indentStyle) === "all-indented" ? `\t${name}` : name
+export function tag(
+  name: string,
+  style?: "all-indented" | "tags-flush",
+): string {
+  return (style ?? getFormatConfig().indentStyle) === "all-indented"
+    ? `\t${name}`
+    : name;
 }
 
 export function indentContent(content: string): string {
-  return content.replace(/\n/g, "\n\t")
+  return content.replace(/\n/g, "\n\t");
 }
 
-export const applyIndentRule = (content: string): string => indentContent(content)
+export const applyIndentRule = (content: string): string =>
+  indentContent(content);
 
 export interface ToolResultLike {
-  name: string
-  success: boolean
-  data?: unknown
-  error?: string
+  name: string;
+  success: boolean;
+  data?: unknown;
+  error?: string;
 }
 
 /** Tool-response payload (JSON), truncated to `FORMAT_CONFIG.toolResultMaxChars`. */
 export function renderToolResponsePayload(result: ToolResultLike): string {
-  const cfg = getFormatConfig()
-  const payload = result.success && !result.error
-    ? { name: result.name, result: result.data ?? { success: true } }
-    : { name: result.name, result: { success: false, error: result.error } }
-  const body = JSON.stringify(payload)
+  const cfg = getFormatConfig();
+  const payload =
+    result.success && !result.error
+      ? { name: result.name, result: result.data ?? { success: true } }
+      : { name: result.name, result: { success: false, error: result.error } };
+  const body = JSON.stringify(payload);
   return body.length > cfg.toolResultMaxChars
     ? body.slice(0, cfg.toolResultMaxChars) + "..."
-    : body
+    : body;
 }
 
 /** `<tool_response>…</tool_response>` block (with body indentation) — used in both block and inline placement. */
 export function renderToolResponseBlock(result: ToolResultLike): string {
-  const cfg = getFormatConfig()
-  const open = tag(cfg.toolResponse.openTag)
-  const close = tag(cfg.toolResponse.closeTag)
-  const body = renderToolResponsePayload(result)
-  return `${open}\n\t${indentContent(body)}\n${close}`
+  const cfg = getFormatConfig();
+  const open = tag(cfg.toolResponse.openTag);
+  const close = tag(cfg.toolResponse.closeTag);
+  const body = renderToolResponsePayload(result);
+  return `${open}\n\t${indentContent(body)}\n${close}`;
 }
 
 /** Wrap a subagent's body in `<subagent name="…">…</subagent>` per config, otherwise return the body unchanged. */
 export function wrapSubagent(name: string, body: string): string {
-  const cfg = getFormatConfig()
-  if (cfg.subagentWrap !== "xml") return body
-  return `<subagent name="${name}">\n${body}\n</subagent>`
+  const cfg = getFormatConfig();
+  if (cfg.subagentWrap !== "xml") return body;
+  return `<subagent name="${name}">\n${body}\n</subagent>`;
 }
 
 export function formatAssistantRole(): string {
-  return getFormatConfig().assistantOpen
+  return getFormatConfig().assistantOpen;
 }
 
 export function formatUserRole(): string {
-  return getFormatConfig().userOpen
+  return getFormatConfig().userOpen;
 }
 
 /** User-role prefix that precedes a tool-response block in `"block"` placement. */
 export function formatToolResponseRole(): string {
-  return `${formatUserRole()}\n`
+  return `${formatUserRole()}\n`;
 }

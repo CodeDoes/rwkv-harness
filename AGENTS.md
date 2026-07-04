@@ -22,8 +22,8 @@ Native RWKV harness — napi-rs Rust binding to web-rwkv 0.10. No node-llama-cpp
 | `tui [--connect]` | Terminal UI (direct engine or gateway client) |
 | `mose ...` | MoSE CLI |
 | `lora ...` | LoRA adapter CLI |
-| `eval` | Oracle-mode eval (mock engine, no model needed) |
-| `eval:live` | Live eval with real model |
+| `eval` | Oracle-mode eval (mock engine, no model needed) — 40 checks |
+| `eval:live` | Live eval with real model — 20 checks |
 | `test:trace` | TraceWriter shape tests (21/21) |
 | `typecheck` | `tsc --noEmit` |
 
@@ -60,11 +60,10 @@ Default: `models/rwkv7-g1h_preview4673-2.9b-20260701-ctx8192.st`
 | `src/tools/utils/zod-to-gbnf.ts` | Zod→GBNF pipeline (zero deps) |
 | `src/agents/loop.ts` | Agent loop. Uses `toolsToGbnfWithThink()` grammar (root allows `(think-block? ws)? text? ws (call ws text? ws)?`) |
 | `src/agents/storyteller/` | Story generation agent. No `mkdir` tool (write auto-creates dirs) |
-| `src/agents/storyteller/examples/` | State-tune examples with `\x00` blank-line indicator between turns |
 | `src/agents/envoy/` | User-facing agent — delegates via spawn_agent |
 | `src/eval/` | Oracle mock eval + live eval |
 | `src/eval/eval-controller.ts` | Runs agent hierarchy (envoy → storyteller). Traces tool responses via `onToolResult` |
-| `src/eval/story-creation.eval.ts` | 27 oracle checks + 16 live checks. Includes `tool responses traced` |
+| `src/eval/story-creation.eval.ts` | 40 oracle checks + 20 live checks. Includes `tool responses traced`, `validateAssistantOutput`, static validation tests |
 | `src/eval/trace-writer.ts` | Streaming trace writer. `fs.writeSync` + `fs.fsyncSync` per line for real-time streaming |
 | `src/rpc/contract.ts` | oRPC contract with all procedures. `stream` returns event iterator for per-token yield |
 | `src/rpc/server.ts` | OpenAPIHandler mounted at `/rpc` |
@@ -109,7 +108,6 @@ Key facts:
 - `infer()` must flush ALL prompt tokens before generation loop (fixed: prompt chunking via `RnnOption::Last` + chunk_size 128 only processes 128 tokens per `infer` call; generation must not start until `num_token() == 0`)
 - `bakeSystemPrompt` should NOT evaluate text into state (saves blank state as baseline; system prompt text handled via session `buildPrompt()` + `loadBaseline()` per request)
 - `streamGenerate` loads baseline before each request to prevent state accumulation across calls. Has per-token callback path (`inferStream`) and batch path (`infer`).
-- RWKV vocab includes `\x00` (null byte, token ID present in vocab)
 
 ## Agent Loop Protocol
 
@@ -142,6 +140,8 @@ Tags (`<think>`, `<tool_call>`, `<tool_response>`) are added by the **template**
 
 **Validation**: `EvalController.validateExampleFormat()` renders examples through the current template and validates each assistant turn against the GBNF grammar rules (paired tags, valid tool JSON, no `<` in text content). This catches drift between examples, code, and grammar. Oracle eval checks `envoy example format valid (GBNF)` and `storyteller example format valid (GBNF)`.
 
+**Runtime output validation**: `EvalController.validateAssistantOutput()` checks raw assistant output for known-bad patterns: missing `\t` indentation, `system:` / `User:` / `Assistant:` echoes, unclosed/mismatched XML tags. Called in oracle static tests (verifying it rejects bad input) and live eval (verifying real model output). The agent loop (`loop.ts`) also logs warnings at runtime when it detects output lacking `\t` prefix or containing role/instruction echoes.
+
 **Swapping**: Pass `template` param to `loadAgent(agentName, template)` or `renderExamples(agentName, template)`. Register new templates via `registerTemplate(name, fn)`.
 
 ### Format Configuration (`src/agents/loop.ts`)
@@ -151,7 +151,6 @@ Two module-level constants control the inter-turn format:
 - **`SEP`** — blank-line indicator inserted between assistant output and tool response.
   Normally `"\n\n"` (blank line). Changes the prompt format:
   No SEP: `\n\nUser:\n` / `\n\nAssistant:` (blank line separators)
-  With SEP: `\x00\nUser:\n` / `\x00\nAssistant:` (SEP replaces blank lines, `\x00` is in RWKV vocab)
 
 - **`STOP_SEQ`** — generation stop sequences. First entry is primary stop.
   Default: `["</tool_call>", "\n\nUser:", "\x03"]`
@@ -199,7 +198,6 @@ Instructions enforce:
 - Never write to same path twice
 - Complete full structure before stopping: `_plan.md` + `chapter-001.md`–`003.md` + wiki (character, location, faction)
 
-Examples in `src/agents/storyteller/examples/*.txt` show exact workflow with `\x00` as blank-line indicator between assistant output and user tool response.
 
 ## Known Quirks
 
@@ -214,8 +212,6 @@ Examples in `src/agents/storyteller/examples/*.txt` show exact workflow with `\x
 - Grammar set via `set_grammar()` (compiles GBNF string), each `infer()` call creates fresh `GrammarState` so every generation starts clean
 - `token_strings` precomputed from `tokenizer.token_index_to_bytes()` (lossy UTF-8 conversion) — rebuilt on init
 - Grammar identifier constraint `[a-zA-Z][a-zA-Z0-9]*` from schoolmarm parser — tool rules use names like `callread`, `callwrite`
-- RWKV tokenizer includes `\x00` (null byte) in its vocabulary — can be used as blank-line indicator or stop token
-- `\x00` in JSON is `JSON.stringify`-escaped as `\u0000`, so it transmits cleanly over HTTP
 - `TraceWriter` calls `fs.fsyncSync` after each write for real-time trace streaming
 - Trace streaming: `onToken` writes each generated token to stdout AND appends to trace file ("assistant: " prefix on first token, raw text appended per token, `endLine()` after generation completes)
 
@@ -247,7 +243,7 @@ All `Model` + `SessionHost` operations are single-sourced in `contract.ts`:
 - ✅ Contract defined in `contract.ts` with `.route()` annotations
 - ✅ Server router in `server.ts`, `OpenAPIHandler` mounted at `/rpc` in GatewayServer
 - ✅ Typed client in `client.ts`, uses `OpenAPILink` matching `OpenAPIHandler` routes
-- ✅ Oracle eval 27/27, live eval 16/16 (passes with model consistency)
+- ✅ Oracle eval 40/40, live eval 20/20 (passes with model consistency)
 - ⏳ Old ad-hoc GatewayServer endpoints still present for backward compat — can be removed once any WebSocket broadcast logic is moved to oRPC handlers
 
 ## Build Notes
@@ -263,13 +259,13 @@ All `Model` + `SessionHost` operations are single-sourced in `contract.ts`:
 
 No test runner. Only:
 - `pnpm typecheck` — `tsc --noEmit`
-- `pnpm eval` — oracle mode (MockEngine, no model), 27 checks
-- `pnpm eval:live` — real model eval, 16 checks
+- `pnpm eval` — oracle mode (MockEngine, no model), 40 checks
+- `pnpm eval:live` — real model eval, 20 checks
 
 Eval traces stored in `src/eval/.traces/` (gitignored). Streaming: each line is `fs.fsyncSync`'d immediately.
 
 ### Checks
 
-Oracle (27): workspace dir, story dir, plan file, 3 chapters, 3 wiki dirs, 3 wiki entries, exact content match, envoy spawned, tool call count, mock consumed, format valid, grammar valid, tool responses traced.
+Oracle (40): workspace dir, story dir, plan file, 3 chapters, 3 wiki dirs, 3 wiki entries, exact content match, envoy spawned, tool call count, mock consumed, format valid, grammar valid, tool responses traced, static validation tests (validateAssistantOutput rejects bad patterns, validateToolCallFormat rejects bad JSON/unknown tool, validateExampleFormat rejects bad examples).
 
-Live (16): envoy spawned, format valid, workspace/story dir, plan file, 3 chapters, wiki character/location/faction dirs + entries, tool call count, tool format valid, tool responses traced.
+Live (20): envoy spawned, format valid, workspace/story dir, plan file, 3 chapters, wiki character/location/faction dirs + entries, tool call count, tool format valid, tool responses traced, output format valid (envoy + storyteller).

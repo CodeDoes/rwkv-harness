@@ -123,13 +123,14 @@ export class EvalController {
             },
             onToken: (t: string) => {
               if (subagentFirstToken) {
-                this.traceWriter.beginLine("assistant:\n")
+                this.traceWriter.beginLine("assistant:")
                 subagentFirstToken = false
               }
               this.traceWriter.append(t)
               process.stdout.write(t)
             },
           }, { temperature: 0.5, maxTokens: 2048 })
+          await this.model.interrupt(subLoop.sessionId).catch(() => {})
           if (!lastAssistantText) lastAssistantText = subResult
           this.traceWriter.raw(`</subagent>`)
 
@@ -169,13 +170,14 @@ export class EvalController {
       onText: (t: string) => process.stdout.write(t),
       onToken: (t: string) => {
         if (envoyFirstToken) {
-          this.traceWriter.beginLine("assistant:\n")
+          this.traceWriter.beginLine("assistant:")
           envoyFirstToken = false
         }
         this.traceWriter.append(t)
         process.stdout.write(t)
       },
     }, { maxTokens: 500, temperature: 0.5 })
+    await this.model.interrupt(agentLoop.sessionId).catch(() => {})
 
     const storyDir = this.findStoryDir(this.baseDir)
     return {
@@ -231,6 +233,74 @@ export class EvalController {
     } catch (e) {
       return e instanceof Error ? e.message : String(e)
     }
+  }
+
+  /**
+   * Validate the RAW assistant output (before <tool_call> parsing).
+   * Checks that the output follows the expected prompt format:
+   * - Every line of content is \t-indented
+   * - No `\tsystem:` or `\tUser:` lines (echoed instructions / role confusion)
+   * - All XML tags properly paired
+   * - No stray `<` in text content
+   */
+  static validateAssistantOutput(raw: string): string[] {
+    const errors: string[] = []
+    if (!raw || raw.trim().length === 0) return errors
+
+    // Must start with \t (first character should be tab-indented content)
+    if (raw.length > 0 && !raw.startsWith("\t")) {
+      errors.push(`output must start with \\t (tab), got: ${JSON.stringify(raw.slice(0, 20))}`)
+    }
+
+    // Check for known-bad patterns that indicate prompt/format drift
+    const lines = raw.split("\n")
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
+      const trimmed = line.trim()
+      // Reject lines that look like echoed system prompt or role markers
+      if (/^system:/i.test(trimmed) && !/^system/i.test(raw.slice(0, 50))) {
+        // Only flag if it's not at the very start of a known system block
+      }
+      if (trimmed.startsWith("system:") || trimmed.startsWith("User:") || trimmed.startsWith("Assistant:")) {
+        errors.push(`line ${i + 1} contains role/instruction echo: ${JSON.stringify(trimmed.slice(0, 30))}`)
+      }
+      // Every non-empty line should be \t-indented
+      if (trimmed.length > 0 && !line.startsWith("\t") && line.trim().length > 0) {
+        // Lines that are just closing tags like `</tool_response>` from inline tool responses
+        // are allowed to be flush-left, but the model output shouldn't have those
+        if (!trimmed.startsWith("</") && trimmed !== "\x00") {
+          // Allow flush-left lines that are continuation of previous \t line
+          // (e.g. a short text response that was broken across lines)
+          const prevLine = i > 0 ? lines[i - 1] : ""
+          if (!prevLine.startsWith("\t") || !prevLine.endsWith(" ")) {
+            errors.push(`line ${i + 1} missing leading \\t: ${JSON.stringify(trimmed.slice(0, 40))}`)
+          }
+        }
+      }
+    }
+
+    // Check paired XML tags
+    const tagStack: string[] = []
+    const tagRe = /<\/?([a-zA-Z_]+)>/g
+    let tagMatch: RegExpExecArray | null
+    while ((tagMatch = tagRe.exec(raw)) !== null) {
+      const full = tagMatch[0]
+      const tagName = tagMatch[1]
+      if (full.startsWith("</")) {
+        if (tagStack.length === 0 || tagStack[tagStack.length - 1] !== tagName) {
+          errors.push(`mismatched closing tag </${tagName}> (expected ${tagStack.length > 0 ? `</${tagStack[tagStack.length - 1]}>` : "no tag"})`)
+        } else {
+          tagStack.pop()
+        }
+      } else {
+        tagStack.push(tagName)
+      }
+    }
+    if (tagStack.length > 0) {
+      errors.push(`unclosed tags: ${tagStack.map(t => `<${t}>`).join(", ")}`)
+    }
+
+    return errors
   }
 
   static validateExampleFormat(rendered: string, toolDefs: ToolDef[]): string[] {

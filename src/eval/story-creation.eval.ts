@@ -15,6 +15,11 @@ import { TraceWriter } from "./trace-writer.ts"
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PROJECT_ROOT = path.resolve(__dirname, "../..")
 
+// Active model reference shared with signal handlers so an interrupt
+// (Ctrl+C) can forward a stop signal to the gateway before exiting.
+let activeModel: Engine | null = null
+let activeGatewayProc: import("child_process").ChildProcess | null = null
+
 const USER_INPUT = "Create a story about dragons with 3 first chapters and an up-to-date wiki."
 
 // ── Oracle content ──
@@ -107,6 +112,80 @@ const trace = new TraceWriter("oracle").open({ mode: "oracle", baseDir })
   const envoyExampleErr = EvalController.validateExampleFormat(envoyExampleText, envoy.toolDefs)
   const stExampleErr = EvalController.validateExampleFormat(stExampleText, stToolDefs)
 
+  // ── Static oracle format-validation tests (prove validators catch bad output) ──
+  const allDefs = [...envoy.toolDefs, ...stToolDefs]
+
+  const validThinkOutput = '\t<think>\n\tGood\n\t</think>\n\tI agree.'
+  const validToolOutput = '\t<tool_call>\n\t{"name":"read","arguments":{"path":"test.md"}}\n\t</tool_call>'
+
+  const formatChecks: Check[] = [
+    // validateAssistantOutput: valid input passes
+    { name: "validateAssistantOutput: accepts valid think+text", pass: EvalController.validateAssistantOutput(validThinkOutput).length === 0 },
+    { name: "validateAssistantOutput: accepts valid tool_call", pass: EvalController.validateAssistantOutput(validToolOutput).length === 0 },
+
+    // validateAssistantOutput: rejects known-bad patterns
+    {
+      name: "rejects \\tsystem: prefix (echoed instructions)",
+      pass: (() => {
+        const errs = EvalController.validateAssistantOutput('\tsystem:\n\tWelcome to the system.')
+        return errs.length > 0
+      })(),
+    },
+    {
+      name: "rejects \\tUser: in output (role confusion)",
+      pass: (() => {
+        const errs = EvalController.validateAssistantOutput('\t<think>\n\tOK\n\t</think>\n\tUser:\n\tHello')
+        return errs.length > 0
+      })(),
+    },
+    {
+      name: "rejects missing \\t prefix",
+      pass: (() => {
+        const errs = EvalController.validateAssistantOutput('<think>\nNo tab here\n</think>')
+        return errs.length > 0
+      })(),
+    },
+    {
+      name: "rejects unclosed <think> tag",
+      pass: (() => {
+        const errs = EvalController.validateAssistantOutput('\t<think>\n\tUnclosed')
+        return errs.length > 0
+      })(),
+    },
+    // validateToolCallFormat: rejects bad JSON
+    {
+      name: "validateToolCallFormat: rejects invalid JSON",
+      pass: (() => {
+        const errs = EvalController.validateToolCallFormat('\t<tool_call>\n\t{invalid json}\n\t</tool_call>', allDefs)
+        return errs.length > 0
+      })(),
+    },
+    {
+      name: "validateToolCallFormat: rejects unknown tool name",
+      pass: (() => {
+        const errs = EvalController.validateToolCallFormat('\t<tool_call>\n\t{"name":"nonexistent_tool","arguments":{"path":"x"}}\n\t</tool_call>', allDefs)
+        return errs.length > 0
+      })(),
+    },
+    // validateExampleFormat: reject bad example format
+    {
+      name: "validateExampleFormat: rejects < in text content",
+      pass: (() => {
+        const badRendered = 'Assistant:\n\tHello <world>'
+        const errs = EvalController.validateExampleFormat(badRendered, allDefs)
+        return errs.length > 0
+      })(),
+    },
+    {
+      name: "validateExampleFormat: rejects unclosed tool_call in example",
+      pass: (() => {
+        const badRendered = 'Assistant:\n\t<tool_call>\n\t{"name":"read","arguments":{"path":"x"}}\n\t</tool_call>\n\t<tool_call>\n\t{"name":"write",'
+        const errs = EvalController.validateExampleFormat(badRendered, allDefs)
+        return errs.length > 0
+      })(),
+    },
+  ]
+
   const checks: Check[] = [
     // Workspace
     { name: "workspace dir", pass: fs.existsSync("workspace") && fs.statSync("workspace").isDirectory() },
@@ -141,7 +220,10 @@ const trace = new TraceWriter("oracle").open({ mode: "oracle", baseDir })
     { name: "storyteller grammar valid", pass: stGrammarErr === null },
     { name: "envoy example format valid (GBNF)", pass: envoyExampleErr.length === 0 },
     { name: "storyteller example format valid (GBNF)", pass: stExampleErr.length === 0 },
+    { name: "mock responses start with \\n\\t", pass: mockResponses.every((r, i) => { const ok = r.startsWith("\n\t"); if (!ok) console.error(`  mock response ${i} bad prefix: ${JSON.stringify(r.slice(0, 6))}`); return ok }) },
     { name: "tool responses traced", pass: result.toolResponseCount >= 8 },
+    // Static format-validation tests (prove validators catch bad output)
+    ...formatChecks,
   ]
 
   const allPass = EvalController.reportVerification("Oracle Verification", checks, trace)
@@ -227,6 +309,11 @@ async function runLive(baseDir: string, args: string[]): Promise<boolean> {
     }
   }
 
+  // Expose model + spawned gateway to signal handlers so SIGINT/SIGTERM can
+  // forward an interrupt to the gateway and tear down spawned processes.
+  activeModel = model
+  activeGatewayProc = gatewayProc
+
   const originalCwd = process.cwd()
   process.chdir(baseDir)
 
@@ -257,6 +344,11 @@ async function runLive(baseDir: string, args: string[]): Promise<boolean> {
   })
 
   const storyDir = result.storyDir ? path.join(baseDir, "workspace", result.storyDir) : null
+
+  // ── Live content validation: check actual model output format ──
+  const envoyFormatErrors = EvalController.validateAssistantOutput(result.finalText)
+  const stFormatErrors = EvalController.validateAssistantOutput(result.storytellerOutput)
+
   const checks: Check[] = [
     // Agent delegation
     { name: "envoy spawned agent", pass: result.subToolCalls >= 1 },
@@ -283,6 +375,9 @@ async function runLive(baseDir: string, args: string[]): Promise<boolean> {
     // Example format (GBNF validation)
     { name: "envoy example format valid", pass: EvalController.validateExampleFormat(renderExamples("envoy"), envoy.toolDefs).length === 0 },
     { name: "storyteller example format valid", pass: EvalController.validateExampleFormat(renderExamples("storyteller"), storyteller.toolDefs).length === 0 },
+    // Live output content validation
+    { name: "envoy output format valid", pass: envoyFormatErrors.length === 0 },
+    { name: "storyteller output format valid", pass: stFormatErrors.length === 0 },
   ]
 
   const allPass = EvalController.reportVerification("Live Verification", checks, trace)
@@ -300,6 +395,8 @@ async function runLive(baseDir: string, args: string[]): Promise<boolean> {
     gatewayProc.kill()
     console.error("Gateway stopped")
   }
+  activeModel = null
+  activeGatewayProc = null
   return allPass
 }
 
@@ -313,11 +410,20 @@ async function main(): Promise<number> {
 
   let success: boolean
   if (isLive) {
+    const origCwd = process.cwd()
     try {
       success = await runLive(tmpDir, args)
     } catch (err) {
       console.error(`Live mode error: ${err instanceof Error ? err.message : String(err)}`)
       success = false
+    } finally {
+      // Always clear active references after runLive completes (success or error)
+      // so an unexpected error doesn't leave the signal handler holding a stale
+      // model. Active flags are also cleared inside runLive() when it exits
+      // cleanly; this finally is the safety net.
+      activeModel = null
+      activeGatewayProc = null
+      process.chdir(origCwd)
     }
     console.error(`\nFiles preserved: ${tmpDir}`)
   } else {
@@ -330,7 +436,39 @@ async function main(): Promise<number> {
   return success ? 0 : 1
 }
 
-main().then((code) => process.exit(code)).catch((err) => {
+async function sendInterrupt(sessionId = "envoy-dragons-live"): Promise<void> {
+  if (!activeModel) return
+  try {
+    await activeModel.interrupt(sessionId)
+    console.error(`[signal] interrupt forwarded to gateway session="${sessionId}"`)
+  } catch (err) {
+    console.error(`[signal] interrupt failed: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
+function killActiveGateway(): void {
+  if (activeGatewayProc) {
+    activeGatewayProc.kill()
+    console.error("[signal] killed eval-spawned gateway")
+  }
+}
+
+process.on("SIGINT", async () => {
+  console.error("\nInterrupted")
+  await sendInterrupt()
+  killActiveGateway()
+  process.exit(1)
+})
+process.on("SIGTERM", async () => {
+  console.error("\nTerminated")
+  await sendInterrupt()
+  killActiveGateway()
+  process.exit(1)
+})
+
+main().then((code) => process.exit(code)).catch(async (err) => {
   console.error("Eval error:", err)
+  await sendInterrupt()
+  killActiveGateway()
   process.exit(1)
 })

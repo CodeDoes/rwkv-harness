@@ -82,7 +82,7 @@ registerTemplate("default", {
     while (i < entries.length) {
       const e = entries[i]
       if (e.type === "user") {
-        segments.push(`User: ${e.content}`)
+        segments.push(`User:\n\t${indentContent(e.content)}`)
         i++
       } else if (e.type === "tool_response") {
         const open = tag("<tool_response>", INDENT_STYLE)
@@ -133,7 +133,7 @@ registerTemplate("default", {
   },
 
   formatUserInput(input) {
-    return `User: ${input}`
+    return `User:\n\t${indentContent(input)}`
   },
 
   formatAssistantRole() {
@@ -163,7 +163,7 @@ registerTemplate("no-think", {
 export function renderAssistantTurn(entries: ExampleEntry[], templateName = "default"): string {
   const filtered = entries.filter(e => e.type === "think" || e.type === "tool_call" || e.type === "text")
   const rendered = getTemplate(templateName).format(filtered)
-  return rendered.replace(/^Assistant:\s*/, "")
+  return rendered.replace(/^Assistant:/, "")
 }
 
 /// ── Loading ──

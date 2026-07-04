@@ -48,36 +48,50 @@ function createRouter(model: Engine, host: SessionHost, modelPath: string, model
       let fullText = ""
 
       const queue: string[] = []
-      let resolve: (() => void) | null = null
+      const waiter = { resolve: null as (() => void) | null }
       let done = false
       let result: GenerateResult = { sessionId: "", text: "", stopReason: "stop" }
 
+      const ac = new AbortController()
       const genPromise = model.streamGenerate({
         sessionId, prompt, opts, blend, segments,
+        signal: ac.signal,
         onToken: (token) => {
           queue.push(token)
-          // Log every token to stderr so gateway log shows streaming
-          process.stderr.write(`> ${token}`)
-          resolve?.()
-          resolve = null
+          process.stderr.write(token)
+          waiter.resolve?.()
+          waiter.resolve = null
         },
       })
       genPromise.then((r) => {
         result = r
         done = true
-        resolve?.()
-        resolve = null
-      }).catch(() => {})
+        waiter.resolve?.()
+        waiter.resolve = null
+      }).catch(() => {
+        done = true
+        waiter.resolve?.()
+        waiter.resolve = null
+      })
 
-      while (!done || queue.length > 0) {
-        while (queue.length > 0) {
-          const token = queue.shift()!
-          fullText += token
-          tokenCount++
-          yield { token }
+      try {
+        while (!done || queue.length > 0) {
+          while (queue.length > 0) {
+            const token = queue.shift()!
+            fullText += token
+            tokenCount++
+            yield { token }
+          }
+          if (!done) {
+            await new Promise<void>((r) => { waiter.resolve = r })
+          }
         }
+      } finally {
+        ac.abort()
         if (!done) {
-          await new Promise<void>((r) => { resolve = r })
+          done = true
+          waiter.resolve?.()
+          waiter.resolve = null
         }
       }
 

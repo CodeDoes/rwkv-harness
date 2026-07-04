@@ -134,8 +134,13 @@ function gbnfToolCallSection(defs: ToolDef[]): { lines: string[]; callNames: str
 
 function gbnfRoot(defs: ToolDef[], rootRule: string): string {
   const shared = [
-    'think-block ::= "\\t" "<think>" "\\n" "\\t" [^<]* "\\n" "\\t" "</think>"',
-    'text ::= "\t" [^<]*',
+    // Every line of free text (outside tags) must be \t-indented:
+    //   "tab then alternation of (non-ctrl-non-< char) or (newline+tab)"
+    // `<` is excluded so opening tags (<thing>) force a line break if they
+    // appear — encouraging tags on their own line (per EXAMPLE.md / user intent).
+    'indented-line ::= ([^\\n<] | "\\n\\t")*',
+    'think-block ::= "\\t" "<think>" "\\n" "\\t" indented-line "\\n\\t" "</think>"',
+    'text ::= "\\t" indented-line',
     'ws ::= [ \\t\\n]*',
   ]
   const { lines, callNames } = gbnfToolCallSection(defs)
