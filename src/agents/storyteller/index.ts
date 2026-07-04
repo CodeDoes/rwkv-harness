@@ -2,7 +2,7 @@ import { promises as fsp } from "fs"
 import * as path from "path"
 import { fileURLToPath } from "url"
 import type { Model } from "../../types.ts"
-import { SessionManager } from "../../session/session.ts"
+import { SessionManager } from "../../session/session-manager.ts"
 import { StoryState, ChapterInfo, DEFAULT_GEN_OPTS, GenerateOpts } from "../../types.ts"
 import { toolsToGbnfResponse } from "../../tools/registry.ts"
 

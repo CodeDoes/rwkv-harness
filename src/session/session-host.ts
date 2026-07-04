@@ -2,7 +2,7 @@ import * as path from "path"
 import { promises as fsp } from "fs"
 import type { Model } from "../types.ts"
 import { AgentLoop } from "../agents/loop.ts"
-import { SessionManager } from "./session.ts"
+import { SessionManager } from "./session-manager.ts"
 import { GenerateOpts, DEFAULT_GEN_OPTS, SessionInfo, ChatMessage } from "../types.ts"
 import { toolDefs, toolsToXml } from "../tools/registry.ts"
 

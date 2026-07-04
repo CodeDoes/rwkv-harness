@@ -4,7 +4,7 @@ import * as path from "path"
 import * as os from "os"
 import { EvalController, type Check } from "./eval-controller.ts"
 import { AgentLoop } from "../agents/loop.ts"
-import { SessionManager } from "../session/session.ts"
+import { SessionManager } from "../session/session-manager.ts"
 import { type ToolDef } from "../types.ts"
 import { TraceWriter } from "./trace-writer.ts"
 

@@ -1,186 +1,105 @@
-import { promises as fsp } from "fs"
-import * as path from "path"
-import crypto from "crypto"
-import { RwkvSession, RwkvMessage } from "../types.ts"
+import type { MessagePart, ResponseTemplate } from "../protocol/message-part.ts"
+import { renderContext } from "../protocol/message-part.ts"
 
-const SESSIONS_DIR = "sessions"
+/**
+ * Session — client-side message-history container.
+ * See ARCH.md §"Session" (A16-A18).
+ *
+ * This is a data class: it holds messages and configuration but does NOT
+ * drive inference. `resume()` on the engine side orchestrates the generate →
+ * parse → tool-exec → feedback loop (Phase 5).
+ */
+export class Session {
+  readonly id: string
+  readonly context: MessagePart[] = []
+  cacheId: string | null = null
+  agentName: string
 
-type JsonlLine =
-  | { type: "init"; id: string; slug: string; model: string; createdAt: string }
-  | { type: "message"; role: RwkvMessage["role"]; content: string; step: number; timestamp: string }
-  | { type: "checkpoint"; name: string; path: string; step: number }
-  | { type: "baseline"; path: string }
+  constructor(opts: { id: string; agentName: string; cacheId?: string | null }) {
+    this.id = opts.id
+    this.agentName = opts.agentName
+    this.cacheId = opts.cacheId ?? null
+  }
 
-export class SessionManager {
-  private sessionDir: string
-  private sessionFile: string
-  private session: RwkvSession
-  private sessionId: string
+  /** Append one or more messages to the end of the context. */
+  input(...parts: MessagePart[]): void {
+    this.context.push(...parts)
+  }
 
-  constructor(storyDir: string, story: string, model: string) {
-    const ts = Date.now().toString(36)
-    const id = crypto.randomBytes(4).toString("hex")
-    const slug = story
-    this.sessionId = `${ts}_${id}_${slug}`
-    this.sessionDir = path.join(SESSIONS_DIR, this.sessionId)
-    this.sessionFile = path.join(this.sessionDir, "session.jsonl")
-    this.session = {
-      story,
-      model,
-      messages: [],
-      stepCount: 0,
-      status: "new",
-      statePaths: {
-        baseline: path.join(this.sessionDir, "_system_baseline.state"),
-        checkpoints: {},
-        latest: null,
-      },
+  /** Number of turns (assistant blocks) in the context. */
+  get turnCount(): number {
+    return this.context.filter((p) => p.type === "text" || p.type === "tool_call" || p.type === "tool_response").length
+  }
+
+  /** Last N messages (or all if N is less than 1). */
+  last(n: number): MessagePart[] {
+    if (n < 1) return [...this.context]
+    return this.context.slice(-n)
+  }
+
+  /**
+   * Fork: create a child Session whose context starts from the first N messages
+   * of the parent. The child gets a new id; the parent's cacheId is NOT
+   * inherited (the child starts cold).
+   */
+  fork(upToMessageIndex: number): Session {
+    const child = new Session({
+      id: `${this.id}_fork_${Date.now().toString(36)}`,
+      agentName: this.agentName,
+      cacheId: null,
+    })
+    child.context.push(...this.context.slice(0, upToMessageIndex))
+    return child
+  }
+
+  /** Clean text of the last assistant turn for UIs / summaries. */
+  get lastAssistantText(): string {
+    const last = [...this.context].reverse()
+    let text = ""
+    for (const p of last) {
+      if (p.type === "text") text = p.content + text
+      else if (p.type === "tool_call" || p.type === "tool_response") break
+    }
+    return text
+  }
+
+  /** Render the full context into a single prompt string using a response template. */
+  toPrompt(template: ResponseTemplate): string {
+    return renderContext(this.context, template)
+  }
+
+  /** Serializable shape for JSONL / wire transfer. */
+  toJSON(): SessionJSON {
+    return {
+      id: this.id,
+      agentName: this.agentName,
+      cacheId: this.cacheId,
+      messages: this.context.map((p) => ({
+        type: p.type,
+        content: "content" in p ? (p as any).content : undefined,
+        data: "data" in p ? (p as any).data : undefined,
+      })),
     }
   }
 
-  async load(): Promise<RwkvSession> {
-    try {
-      const raw = await fsp.readFile(this.sessionFile, "utf-8")
-      const lines = raw.trim().split("\n").filter(Boolean)
-      const messages: RwkvMessage[] = []
-      const statePaths = {
-        baseline: path.join(this.sessionDir, "_system_baseline.state"),
-        checkpoints: {} as Record<string, string>,
-        latest: null as string | null,
-      }
-
-      for (const line of lines) {
-        const entry: JsonlLine = JSON.parse(line)
-        switch (entry.type) {
-          case "init":
-            this.session.story = entry.slug
-            this.session.model = entry.model
-            this.session.status = "active"
-            break
-          case "message":
-            messages.push({ role: entry.role, content: entry.content })
-            break
-          case "checkpoint":
-            statePaths.checkpoints[entry.name] = entry.path
-            statePaths.latest = entry.path
-            break
-          case "baseline":
-            statePaths.baseline = entry.path
-            break
-        }
-      }
-
-      this.session.messages = messages
-      this.session.statePaths = statePaths
-      this.session.stepCount = messages.filter((m) => m.role === "assistant").length
-      return this.session
-    } catch {
-      return this.session
-    }
-  }
-
-  async save(): Promise<void> {
-    this.session.updatedAt = new Date().toISOString()
-    this.session.stepCount = this.session.messages.filter((m) => m.role === "assistant").length
-    await fsp.mkdir(this.sessionDir, { recursive: true })
-
-    const lines: string[] = []
-    const initLine: JsonlLine = {
-      type: "init",
-      id: this.sessionId,
-      slug: this.session.story,
-      model: this.session.model,
-      createdAt: this.session.updatedAt,
-    }
-    lines.push(JSON.stringify(initLine))
-
-    let step = 0
-    for (const m of this.session.messages) {
-      step++
-      const msgLine: JsonlLine = {
-        type: "message",
-        role: m.role,
-        content: m.content,
-        step,
-        timestamp: new Date().toISOString(),
-      }
-      lines.push(JSON.stringify(msgLine))
-    }
-
-    for (const [name, filePath] of Object.entries(this.session.statePaths.checkpoints)) {
-      const cpLine: JsonlLine = {
-        type: "checkpoint",
-        name,
-        path: filePath,
-        step: this.session.stepCount,
-      }
-      lines.push(JSON.stringify(cpLine))
-    }
-
-    const blLine: JsonlLine = {
-      type: "baseline",
-      path: this.session.statePaths.baseline,
-    }
-    lines.push(JSON.stringify(blLine))
-
-    await fsp.writeFile(this.sessionFile, lines.join("\n") + "\n", "utf-8")
-  }
-
-  get sessionDirPath(): string {
-    return this.sessionDir
-  }
-
-  get sessionIdStr(): string {
-    return this.sessionId
-  }
-
-  get(): RwkvSession {
-    return this.session
-  }
-
-  addMessage(msg: RwkvMessage) {
-    this.session.messages.push(msg)
-  }
-
-  buildPrompt(systemPrompt: string, useRoles = false): string {
-    const msgs = this.session.messages
-    let prompt = systemPrompt.replace(/[ \t]+(\n|$)/g, "$1") + "\n\n"
-    for (const m of msgs) {
-      switch (m.role) {
-        case "user":
-          prompt += `${useRoles ? "User: " : ""}${m.content.replace(/[ \t]+(\n|$)/g, "$1")}\n\n`
-          break
-        case "assistant":
-          prompt += `${useRoles ? "Assistant: " : ""}${m.content.replace(/[ \t]+(\n|$)/g, "$1")}\n\n`
-          break
-        case "tool":
-          prompt += `[Tool result: ${m.content.slice(0, 200)}]\n\n`
-          break
+  static fromJSON(json: SessionJSON): Session {
+    const s = new Session({ id: json.id, agentName: json.agentName, cacheId: json.cacheId })
+    for (const m of json.messages) {
+      if (m.type === "tool_call") {
+        s.context.push({ type: "tool_call", data: m.data as any })
+      } else if (m.type === "tool_response") {
+        s.context.push({ type: "tool_response", data: m.data as any })
+      } else {
+        s.context.push({ type: m.type as any, content: m.content ?? "" })
       }
     }
-    return prompt
+    return s
   }
+}
 
-  registerCheckpoint(name: string, filePath: string) {
-    this.session.statePaths.checkpoints[name] = filePath
-    this.session.statePaths.latest = filePath
-  }
-
-  getLatestCheckpoint(): string | null {
-    return this.session.statePaths.latest
-      ? path.resolve(this.session.statePaths.latest)
-      : null
-  }
-
-  async ensureDir() {
-    await fsp.mkdir(this.sessionDir, { recursive: true })
-  }
-
-  stateFilePath(name: string): string {
-    return path.join(this.sessionDir, `_state_${name}.state`)
-  }
-
-  async saveLog(text: string) {
-    await fsp.appendFile(path.join(this.sessionDir, "_agent.log"), text, "utf-8")
-  }
+export interface SessionJSON {
+  id: string
+  agentName: string
+  cacheId: string | null
+  messages: { type: string; content?: string; data?: unknown }[]
 }

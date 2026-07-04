@@ -1,7 +1,7 @@
 import { dirname, resolve } from "path"
 import { fileURLToPath } from "url"
 import type { Model } from "../types.ts"
-import { SessionManager } from "../session/session.ts"
+import { SessionManager } from "../session/session-manager.ts"
 import { GenerateOpts, DEFAULT_GEN_OPTS, GenerateCallbacks, ToolCall, ToolResult, ToolDef, ToolHandler } from "../types.ts"
 import { toolDefs as defaultToolDefs, toolHandlers as defaultHandlers, toolsToXml, toolsToGbnfWithThink } from "../tools/registry.ts"
 import { getTemplate, renderDefaultExamples } from "./examples.ts"

@@ -5,7 +5,7 @@ import * as os from "os"
 import { fileURLToPath } from "url"
 import { TraceWriter } from "./trace-writer.ts"
 import { AgentLoop } from "../agents/loop.ts"
-import { SessionManager } from "../session/session.ts"
+import { SessionManager } from "../session/session-manager.ts"
 import { MockModel } from "./mock-engine.ts"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
