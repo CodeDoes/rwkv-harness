@@ -95,30 +95,24 @@ export class EvalController {
               const contentPreview = toolArgs.content ? ` (${String(toolArgs.content).slice(0, 60).replace(/\n/g, "\\n")}...)` : ""
               console.error(`  STORYTELLER depth: ${name}${pathStr}${contentPreview}`)
             },
-            // Sub-agent tool responses live in the child's session log; not in
-            // the master trace. The master trace sees only the parent (envoy)
-            // inference flow.
             onToolResult: (result) => {
               toolResponseCount++
-              this.traceWriter.writeSubagent("storyteller", "tool", JSON.stringify(result))
+              this.traceWriter.write("tool", JSON.stringify(result))
             },
             saveSession: () => storyMgr.saveFromSession(storySession),
           })
 
-          // Mark sub-agent entry in the trace before its output.
-          this.traceWriter.write("meta", `── enter subagent "${agentName}" ──`)
+          // Log the sub-agent's actual input/output to trace — no special wrappers,
+          // just intercept system/user before the call and assistant/tool from callbacks.
+          this.traceWriter.write("system", storyteller.instructions)
+          this.traceWriter.write("user", taskText)
 
-          // Capture the sub-agent's last assistant block's text — that becomes
-          // the spawn_agent tool response, surfaced to the parent for its
-          // next inference turn. Mirror narrated assistant text into the
-          // master trace as a subagent segment so the eval can see what
-          // the child did end-to-end (item 14 in TODO.md).
           let lastAssistantText = ""
           let subagentBlockCaptured = false
           const subResult = await subLoop.run(taskText, {
             onRawOutput: (raw) => {
               if (!subagentBlockCaptured) {
-                this.traceWriter.writeSubagent("storyteller", "assistant", raw)
+                this.traceWriter.write("assistant", raw)
                 subagentBlockCaptured = true
               }
             },
@@ -129,9 +123,6 @@ export class EvalController {
             onToken: (t: string) => process.stdout.write(t),
           }, { temperature: 0.5, maxTokens: 2048 })
           if (!lastAssistantText) lastAssistantText = subResult
-
-          // Mark sub-agent exit in the trace.
-          this.traceWriter.write("meta", `── exit subagent "${agentName}" ──`)
 
           await this.model.loadCheckpoint("envoy-pause")
 
