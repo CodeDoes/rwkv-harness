@@ -156,12 +156,11 @@ export class AgentLoop {
       }
       // Only send delta — state already has previous prompt + generated tokens baked in.
       // Re-sending old text double-counts in the RNN state and corrupts it.
-      // In "block" placement, the tool-response is its own `User:` turn
-      // (`formatToolResponseRole() + resultsBlock + sep + formatAssistantRole()`).
-      // In "inline" placement the tool-response tag follows the assistant
-      // `</tool_call>` directly, so the follow-up is just `sep + Assistant:`.
+      // The state already ends with `</tool_call>`. We append only the delta:
+      //   "block"  — own User turn:  `\n\nUser:\n<tool_response>…</tool_response>\n\nAssistant:`
+      //   "inline" — direct follow-up: `\n<tool_response>…</tool_response>\n\nAssistant:`
       if (cfg.toolResponse.placement === "inline") {
-        fullPrompt = cfg.sep + formatAssistantRole()
+        fullPrompt = "\n" + resultsBlock.trim() + cfg.sep + formatAssistantRole()
       } else {
         fullPrompt =
           cfg.sep + formatToolResponseRole() + resultsBlock.trim() + cfg.sep + formatAssistantRole()
