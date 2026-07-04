@@ -28,6 +28,7 @@
     "bench:placement": "bash scripts/bench-placement.sh",
     "test:trace": "tsx src/eval/trace-writer.test.ts",
     "test:agent": "tsx src/agents/agent.test.ts",
+    "test:format-strictness": "tsx src/eval/format-strictness.test.ts",
     "test:state-tune": "tsx src/core/state-tune-cache.test.ts",
     "test:log-stream": "tsx src/core/log-stream.test.ts",
     "test:core": "pnpm test:state-tune && pnpm test:log-stream",

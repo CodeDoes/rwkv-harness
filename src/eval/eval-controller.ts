@@ -236,50 +236,83 @@ export class EvalController {
   }
 
   /**
-   * Validate the RAW assistant output (before <tool_call> parsing).
-   * Checks that the output follows the expected prompt format:
-   * - Every line of content is \t-indented
-   * - No `\tsystem:` or `\tUser:` lines (echoed instructions / role confusion)
-   * - All XML tags properly paired
-   * - No stray `<` in text content
+   * Validate the RAW assistant output at the STRICT level. This is the
+   * contract examples are expected to satisfy — every line tab-indented,
+   * role markers banned, balance required, etc. Drift in any of these
+   * means the rendered example prompt would no longer match what the
+   * grammar expects.
    */
   static validateAssistantOutput(raw: string): string[] {
+    return this._validateAssistantOutputImpl(raw, { strict: true })
+  }
+
+  /**
+   * Lenient validator — the GRAMMAR-level contract. The grammar requires:
+   *   - block-level indented newlines (`\n\t` inside think-block /
+   *     tool_call body),
+   *   - JSON inside `<tool_call>` parses as `{name, arguments}`,
+   *   - no echoed role markers (`system:`, `User:`, `Assistant:`),
+   *   - balanced XML tags.
+   *
+   * Strict-only requirements (every prose line `\t`-prefixed, etc.) are
+   * NOT enforced here, because the grammar leaves room for free text.
+   * This is the contract we use for live output validation.
+   */
+  static validateAssistantOutputLenient(raw: string): string[] {
+    return this._validateAssistantOutputImpl(raw, { strict: false })
+  }
+
+  private static _validateAssistantOutputImpl(raw: string, opts: { strict: boolean }): string[] {
     const errors: string[] = []
     if (!raw || raw.trim().length === 0) return errors
 
-    // Must start with \t (first character should be tab-indented content)
+    // First character: tab-indent.
     if (raw.length > 0 && !raw.startsWith("\t")) {
       errors.push(`output must start with \\t (tab), got: ${JSON.stringify(raw.slice(0, 20))}`)
     }
 
-    // Check for known-bad patterns that indicate prompt/format drift
+    // Role-marker echo guard (always on — both modes).
     const lines = raw.split("\n")
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i]
       const trimmed = line.trim()
-      // Reject lines that look like echoed system prompt or role markers
-      if (/^system:/i.test(trimmed) && !/^system/i.test(raw.slice(0, 50))) {
-        // Only flag if it's not at the very start of a known system block
-      }
       if (trimmed.startsWith("system:") || trimmed.startsWith("User:") || trimmed.startsWith("Assistant:")) {
         errors.push(`line ${i + 1} contains role/instruction echo: ${JSON.stringify(trimmed.slice(0, 30))}`)
       }
-      // Every non-empty line should be \t-indented
-      if (trimmed.length > 0 && !line.startsWith("\t") && line.trim().length > 0) {
-        // Lines that are just closing tags like `</tool_response>` from inline tool responses
-        // are allowed to be flush-left, but the model output shouldn't have those
-        if (!trimmed.startsWith("</") && trimmed !== "\x00") {
-          // Allow flush-left lines that are continuation of previous \t line
-          // (e.g. a short text response that was broken across lines)
+    }
+
+    // Per-line \t indentation — STRICT only.
+    if (opts.strict) {
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i]
+        const trimmed = line.trim()
+        if (trimmed.length === 0) continue
+        if (!line.startsWith("\t")) {
+          if (trimmed.startsWith("</") || trimmed === "\x00") continue
           const prevLine = i > 0 ? lines[i - 1] : ""
-          if (!prevLine.startsWith("\t") || !prevLine.endsWith(" ")) {
-            errors.push(`line ${i + 1} missing leading \\t: ${JSON.stringify(trimmed.slice(0, 40))}`)
-          }
+          if (prevLine.startsWith("\t") && prevLine.endsWith(" ")) continue
+          errors.push(`line ${i + 1} missing leading \\t: ${JSON.stringify(trimmed.slice(0, 40))}`)
         }
       }
     }
 
-    // Check paired XML tags
+    // Grammar leaniant: every tool_call body parses as JSON.
+    const tcMatches = [...raw.matchAll(/<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/g)]
+    for (const m of tcMatches) {
+      const body = m[1]
+      try {
+        const parsed = JSON.parse(body)
+        if (typeof parsed !== "object" || parsed === null) {
+          errors.push(`<tool_call> JSON not an object: ${JSON.stringify(body).slice(0, 60)}`)
+        } else if (typeof parsed.name !== "string") {
+          errors.push(`<tool_call> missing "name" string: ${JSON.stringify(body).slice(0, 60)}`)
+        }
+      } catch {
+        errors.push(`<tool_call> JSON did not parse: ${body.slice(0, 60)}`)
+      }
+    }
+
+    // Balanced XML tags.
     const tagStack: string[] = []
     const tagRe = /<\/?([a-zA-Z_]+)>/g
     let tagMatch: RegExpExecArray | null

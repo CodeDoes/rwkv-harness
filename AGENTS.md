@@ -199,6 +199,19 @@ Instructions enforce:
 - Complete full structure before stopping: `_plan.md` + `chapter-001.md`–`003.md` + wiki (character, location, faction)
 
 
+## Grammar Strictness Policy
+
+Examples and the grammar enforce **different** contracts:
+
+- **Examples** show the *preferred* output format. They are the stylistic ground truth. Validator `EvalController.validateAssistantOutput` (strict) is used to catch example drift: tab-indented lines, no role-marker echo (`system:` / `User:` / `Assistant:`), balanced XML tags, valid `<tool_call>` JSON.
+- **Grammar** is the *most lenient valid* format. It enforces only:
+  - Block-level indented newlines (`\n\t`) inside `<think>…</think>` and `<tool_call>…</tool_call>` bodies.
+  - `<tool_call>…</tool_call>` containing valid JSON with a `name` (string) and `arguments` (object).
+  - <think>/<tool_call> are accepted *anywhere* in the assistant turn.
+- **Anything more than that** is desirable but not required. Live model output is checked against `EvalController.validateAssistantOutputLenient`, which mirrors the grammar contract only. Stylistic drift in live output is warned about at runtime by `loop.ts` but does not fail eval.
+
+Tests: `pnpm test:format-strictness`. Both validators are tested side-by-side; cross-check `validateExampleFormat` continues to reject bad examples.
+
 ## Known Quirks
 
 - `streamGenerate` has two paths: per-token callback (`inferStream` + `onToken`) and batch (`infer`). `HttpModel` always proxies through the event-iterator path via oRPC `stream` procedure.

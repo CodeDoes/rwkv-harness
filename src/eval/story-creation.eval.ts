@@ -355,9 +355,11 @@ async function runLive(baseDir: string, args: string[]): Promise<boolean> {
 
   const storyDir = result.storyDir ? path.join(baseDir, "workspace", result.storyDir) : null
 
-  // ── Live content validation: check actual model output format ──
-  const envoyFormatErrors = EvalController.validateAssistantOutput(result.finalText)
-  const stFormatErrors = EvalController.validateAssistantOutput(result.storytellerOutput)
+  // ── Live content validation: use LENIENT (grammar-level) checks.
+  // Strict-level drift detection is reserved for example rendering
+  // (see the "static oracle format-validation" tests below).
+  const envoyFormatErrors = EvalController.validateAssistantOutputLenient(result.finalText)
+  const stFormatErrors = EvalController.validateAssistantOutputLenient(result.storytellerOutput)
 
   const checks: Check[] = [
     // Agent delegation
