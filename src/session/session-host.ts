@@ -3,6 +3,7 @@ import { promises as fsp } from "fs"
 import type { Engine } from "../types.ts"
 import { AgentLoop } from "../agents/loop.ts"
 import { SessionManager } from "./session-manager.ts"
+import { Session } from "./session.ts"
 import { GenerateOpts, DEFAULT_GEN_OPTS, SessionInfo, ChatMessage } from "../types.ts"
 import { toolDefs, toolsToXml } from "../tools/registry.ts"
 
@@ -192,7 +193,10 @@ export class SessionHost {
     s.messages.push({ role: "user", content: prompt, timestamp: new Date().toISOString() })
 
     let finalText = ""
-    const agentLoop = new AgentLoop(this._model, this.sessionManager, 5)
+    const agentSession = new Session({ id: this.sessionManager.sessionIdStr, agentName: "agent" })
+    const agentLoop = new AgentLoop(this._model, agentSession, 5, {
+      saveSession: () => this.sessionManager.saveFromSession(agentSession),
+    })
     try {
       const result = await agentLoop.run(prompt, {
         onText: (t) => {

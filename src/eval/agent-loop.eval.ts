@@ -4,6 +4,7 @@ import * as path from "path"
 import * as os from "os"
 import { EvalController, type Check } from "./eval-controller.ts"
 import { AgentLoop } from "../agents/loop.ts"
+import { Session } from "../session/session.ts"
 import { SessionManager } from "../session/session-manager.ts"
 import { type ToolDef } from "../types.ts"
 import { TraceWriter } from "./trace-writer.ts"
@@ -31,10 +32,11 @@ async function testToolCallStops(baseDir: string): Promise<boolean> {
     think("Got the content.") + "The file contains: hello world.\x03",
   ])
 
-  const session = new SessionManager(baseDir, "toolcall-test", "agent")
-  await session.ensureDir()
+  const mgr = new SessionManager(baseDir, "toolcall-test", "agent")
+  await mgr.ensureDir()
+  const session = new Session({ id: mgr.sessionIdStr, agentName: "agent" })
 
-  const agentLoop = new AgentLoop(model, session, 3)
+  const agentLoop = new AgentLoop(model, session, 3, { saveSession: () => mgr.saveFromSession(session) })
 
   const output = await agentLoop.run("read test.txt", {})
 
@@ -58,10 +60,11 @@ async function testEotSignalsEnd(baseDir: string): Promise<boolean> {
     think("I have no tools to use.") + "I have completed the task.\x03",
   ])
 
-  const session = new SessionManager(baseDir, "eot-test", "agent")
-  await session.ensureDir()
+  const mgr = new SessionManager(baseDir, "eot-test", "agent")
+  await mgr.ensureDir()
+  const session = new Session({ id: mgr.sessionIdStr, agentName: "agent" })
 
-  const agentLoop = new AgentLoop(model, session, 5)
+  const agentLoop = new AgentLoop(model, session, 5, { saveSession: () => mgr.saveFromSession(session) })
   const output = await agentLoop.run("do something simple")
 
   const checks: Check[] = [
@@ -85,10 +88,11 @@ async function testMaxTokensCutoff(baseDir: string): Promise<boolean> {
     "detect no tool call and no EOT and return the partial text.\x03",
   ])
 
-  const session = new SessionManager(baseDir, "maxtokens-test", "agent")
-  await session.ensureDir()
+  const mgr = new SessionManager(baseDir, "maxtokens-test", "agent")
+  await mgr.ensureDir()
+  const session = new Session({ id: mgr.sessionIdStr, agentName: "agent" })
 
-  const agentLoop = new AgentLoop(model, session, 5)
+  const agentLoop = new AgentLoop(model, session, 5, { saveSession: () => mgr.saveFromSession(session) })
   const output = await agentLoop.run("write a long response")
 
   const checks: Check[] = [
@@ -112,10 +116,11 @@ async function testMultipleToolCalls(baseDir: string): Promise<boolean> {
     "Done with both operations.\x03",
   ])
 
-  const session = new SessionManager(baseDir, "multitool-test", "agent")
-  await session.ensureDir()
+  const mgr = new SessionManager(baseDir, "multitool-test", "agent")
+  await mgr.ensureDir()
+  const session = new Session({ id: mgr.sessionIdStr, agentName: "agent" })
 
-  const agentLoop = new AgentLoop(model, session, 5)
+  const agentLoop = new AgentLoop(model, session, 5, { saveSession: () => mgr.saveFromSession(session) })
   const output = await agentLoop.run("read a.txt then write b.txt")
 
   const checks: Check[] = [
@@ -139,10 +144,11 @@ async function testMalformedToolCall(baseDir: string): Promise<boolean> {
     "Got the content.\x03",
   ])
 
-  const session = new SessionManager(baseDir, "malformed-test", "agent")
-  await session.ensureDir()
+  const mgr = new SessionManager(baseDir, "malformed-test", "agent")
+  await mgr.ensureDir()
+  const session = new Session({ id: mgr.sessionIdStr, agentName: "agent" })
 
-  const agentLoop = new AgentLoop(model, session, 5)
+  const agentLoop = new AgentLoop(model, session, 5, { saveSession: () => mgr.saveFromSession(session) })
   const output = await agentLoop.run("read test.txt")
 
   const checks: Check[] = [

@@ -2,6 +2,8 @@ import { promises as fsp } from "fs"
 import * as path from "path"
 import crypto from "crypto"
 import { RwkvSession, RwkvMessage } from "../types.ts"
+import type { Session } from "./session.ts"
+import { MessagePart } from "../protocol/message-part.ts"
 
 const SESSIONS_DIR = "sessions"
 
@@ -182,5 +184,46 @@ export class SessionManager {
 
   async saveLog(text: string) {
     await fsp.appendFile(path.join(this.sessionDir, "_agent.log"), text, "utf-8")
+  }
+
+  /** Bridge: save a Session's context into this manager's JSONL. */
+  async saveFromSession(session: Session): Promise<void> {
+    this.session.messages = session.context.map((p) => {
+      if (p.type === "user_message") return { role: "user" as const, content: p.content }
+      if (p.type === "text")          return { role: "assistant" as const, content: p.content }
+      if (p.type === "tool_response") {
+        const info = p.data.success
+          ? `result: ${JSON.stringify(p.data.data ?? {})}`
+          : `error: ${p.data.error ?? "unknown"}`
+        return { role: "tool" as const, content: info.slice(0, 200) }
+      }
+      if (p.type === "tool_call") return { role: "assistant" as const, content: `<tool_call>${JSON.stringify(p.data)}</tool_call>` }
+      return { role: "assistant" as const, content: "" }
+    })
+    await this.save()
+  }
+
+  /** Bridge: restore a Session's context from this manager's JSONL. */
+  async restoreToSession(session: Session): Promise<void> {
+    await this.load()
+    for (const m of this.session.messages) {
+      if (m.role === "user") {
+        session.context.push(MessagePart.user(m.content))
+      } else if (m.role === "assistant") {
+        const tcMatch = m.content.match(/<tool_call>(.*?)<\/tool_call>/)
+        if (tcMatch) {
+          try {
+            const parsed = JSON.parse(tcMatch[1])
+            session.context.push(MessagePart.toolCall(parsed.name ?? "unknown", parsed.arguments ?? {}))
+          } catch {
+            session.context.push(MessagePart.text(m.content))
+          }
+        } else {
+          session.context.push(MessagePart.text(m.content))
+        }
+      } else if (m.role === "tool") {
+        session.context.push(MessagePart.toolResponse("system", m.content.startsWith("result:")))
+      }
+    }
   }
 }

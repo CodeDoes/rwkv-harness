@@ -5,6 +5,7 @@ import * as os from "os"
 import { fileURLToPath } from "url"
 import { TraceWriter } from "./trace-writer.ts"
 import { AgentLoop } from "../agents/loop.ts"
+import { Session } from "../session/session.ts"
 import { SessionManager } from "../session/session-manager.ts"
 import { MockModel } from "./mock-engine.ts"
 
@@ -70,14 +71,16 @@ async function traceShapeAgentLoopTest() {
   const sessionDir = fs.mkdtempSync(path.join(os.tmpdir(), "sess-"))
   const session = new SessionManager(path.dirname(sessionDir), path.basename(sessionDir), "test")
   await session.ensureDir()
+  const agentSession = new Session({ id: session.sessionIdStr, agentName: "test" })
 
   const model = new MockModel([
     `Hello, friend!<tool_call>\n{"name":"read","arguments":{"path":"foo"}}\n</tool_call>`,
     `How can I help?`,
   ])
 
-  const loop = new AgentLoop(model, session, 5, {
+  const loop = new AgentLoop(model, agentSession, 5, {
     onToolResult: (r) => tw.write("tool", JSON.stringify(r)),
+    saveSession: () => session.saveFromSession(agentSession),
   })
 
   let rawCaptured = 0
@@ -109,6 +112,7 @@ async function writeRoleInterleavingTest() {
   const sessionDir = fs.mkdtempSync(path.join(os.tmpdir(), "ord-sess-"))
   const session = new SessionManager(path.dirname(sessionDir), path.basename(sessionDir), "ord")
   await session.ensureDir()
+  const agentSession = new Session({ id: session.sessionIdStr, agentName: "ord" })
 
   const order: string[] = []
 
@@ -117,8 +121,9 @@ async function writeRoleInterleavingTest() {
     `All done.`,
   ])
 
-  const loop = new AgentLoop(model, session, 5, {
+  const loop = new AgentLoop(model, agentSession, 5, {
     onToolResult: (r) => tw.write("tool", JSON.stringify(r)),
+    saveSession: () => session.saveFromSession(agentSession),
   })
 
   tw.write("user", "test")

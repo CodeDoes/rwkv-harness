@@ -4,6 +4,7 @@ import { fileURLToPath } from "url"
 import type { Engine, ToolDef } from "../types.ts"
 import type { LoadedAgent } from "../agents/agent-loader.ts"
 import { AgentLoop } from "../agents/loop.ts"
+import { Session } from "../session/session.ts"
 import { SessionManager } from "../session/session-manager.ts"
 import { toolsToGbnfWithThink } from "../tools/registry.ts"
 import mkdirTool from "../tools/mkdir.ts"
@@ -54,8 +55,9 @@ export class EvalController {
     let toolResponseCount = 0
     const { envoy, storyteller, userInput, onSpawnResult } = cfg
 
-    const session = new SessionManager(this.baseDir, this.sessionId, "envoy")
-    await session.ensureDir()
+    const session = new Session({ id: this.sessionId, agentName: "envoy" })
+    const manager = new SessionManager(this.baseDir, this.sessionId, "envoy")
+    await manager.ensureDir()
 
     this.traceWriter.write("system", envoy.instructions)
 
@@ -74,12 +76,13 @@ export class EvalController {
 
           await this.model.saveCheckpoint("envoy-pause")
 
-          const storySession = new SessionManager(
-            session.sessionDirPath,
+          const storySession = new Session({ id: workspacePath, agentName: "storyteller" })
+          const storyMgr = new SessionManager(
+            manager.sessionDirPath,
             workspacePath,
             "storyteller",
           )
-          await storySession.ensureDir()
+          await storyMgr.ensureDir()
 
           const subLoop = new AgentLoop(this.model, storySession, 15, {
             systemPrompt: storyteller.instructions,
@@ -99,6 +102,7 @@ export class EvalController {
               toolResponseCount++
               this.traceWriter.writeSubagent("storyteller", "tool", JSON.stringify(result))
             },
+            saveSession: () => storyMgr.saveFromSession(storySession),
           })
 
           // Capture the sub-agent's last assistant block's text — that becomes
@@ -125,8 +129,8 @@ export class EvalController {
 
           await this.model.loadCheckpoint("envoy-pause")
 
-          const extra = onSpawnResult ? onSpawnResult(args, subResult, storySession) : {}
-          return { summary: lastAssistantText, sessionId: storySession.sessionIdStr, ...extra }
+          const extra = onSpawnResult ? onSpawnResult(args, subResult, storyMgr) : {}
+          return { summary: lastAssistantText, sessionId: storySession.id, ...extra }
         },
       },
       onToolCall: (name) => {
@@ -139,6 +143,7 @@ export class EvalController {
         toolResponseCount++
         this.traceWriter.write("tool", JSON.stringify(result))
       },
+      saveSession: () => manager.saveFromSession(session),
     })
 
     this.traceWriter.write("user", userInput)

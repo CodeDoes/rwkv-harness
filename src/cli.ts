@@ -5,6 +5,7 @@ import { fileURLToPath } from "url"
 import { NativeRwkvModel } from "./model/native-rwkv-model.ts"
 import { HttpModel } from "./model/http-model.ts"
 import type { Engine } from "./types.ts"
+import { Session } from "./session/session.ts"
 import { SessionManager } from "./session/session-manager.ts"
 import { StorytellerAgent } from "./agents/storyteller/index.ts"
 import { AgentLoop } from "./agents/loop.ts"
@@ -185,7 +186,10 @@ async function runCli() {
     case "agent": {
       const prompt = input || "What would you like to do?"
       console.error(`\nAgent mode | max depth: ${agentDepth}\n`)
-      const agentLoop = new AgentLoop(model, session, agentDepth)
+      const agentSession = new Session({ id: session.sessionIdStr, agentName: "agent" })
+      const agentLoop = new AgentLoop(model, agentSession, agentDepth, {
+        saveSession: () => session.saveFromSession(agentSession),
+      })
       cleanupAgent = () => agentLoop.dispose()
       const result = await agentLoop.run(prompt, {
         onText: (t: string) => process.stdout.write(t),

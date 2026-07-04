@@ -1,7 +1,8 @@
 import { dirname, resolve } from "path"
 import { fileURLToPath } from "url"
 import type { Engine } from "../types.ts"
-import { SessionManager } from "../session/session-manager.ts"
+import { Session } from "../session/session.ts"
+import { MessagePart } from "../protocol/message-part.ts"
 import { GenerateOpts, DEFAULT_GEN_OPTS, GenerateCallbacks, ToolCall, ToolResult, ToolDef, ToolHandler } from "../types.ts"
 import { toolDefs as defaultToolDefs, toolHandlers as defaultHandlers, toolsToXml, toolsToGbnfWithThink } from "../tools/registry.ts"
 import { getTemplate, renderDefaultExamples } from "./examples.ts"
@@ -28,11 +29,13 @@ export interface AgentLoopConfig {
   templateName?: string
   onToolCall?: (name: string, args: Record<string, unknown>) => void
   onToolResult?: (result: ToolResult) => void
+  /** Called to persist session state after each turn (Phase 5 bridge). */
+  saveSession?: () => Promise<void>
 }
 
 export class AgentLoop {
   private model: Engine
-  private session: SessionManager
+  private session: Session
   private maxDepth: number
   private config: Required<AgentLoopConfig>
   private sessionId: string
@@ -40,7 +43,7 @@ export class AgentLoop {
   private lastCallSignatures: string[] = []
   private template: ReturnType<typeof getTemplate>
 
-  constructor(model: Engine, session: SessionManager, maxDepth = 5, config?: AgentLoopConfig) {
+  constructor(model: Engine, session: Session, maxDepth = 5, config?: AgentLoopConfig) {
     this.model = model
     this.session = session
     this.maxDepth = maxDepth
@@ -53,6 +56,7 @@ export class AgentLoop {
       templateName: config?.templateName ?? "default",
       onToolCall: config?.onToolCall ?? (() => {}),
       onToolResult: config?.onToolResult ?? (() => {}),
+      saveSession: config?.saveSession ?? (() => Promise.resolve()),
     }
     this.sessionId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
     this.initPromise = model.process({
@@ -68,9 +72,6 @@ export class AgentLoop {
     callbacks?: GenerateCallbacks,
     opts: Partial<GenerateOpts> = {},
   ): Promise<string> {
-    const sess = this.session.get()
-    sess.status = "active"
-
     await this.initPromise
 
     const cfg = getFormatConfig()
@@ -165,15 +166,14 @@ export class AgentLoop {
         fullPrompt =
           cfg.sep + formatToolResponseRole() + resultsBlock.trim() + cfg.sep + formatAssistantRole()
       }
-      await this.session.save()
+      await this.config.saveSession()
       depth++
     }
 
     callbacks?.onDone?.()
 
-    this.session.addMessage({ role: "user", content: userInput })
-    this.session.addMessage({ role: "assistant", content: finalText })
-    await this.session.save()
+    this.session.input(MessagePart.user(userInput), MessagePart.text(finalText))
+    await this.config.saveSession()
 
     return this.cleanOutput(finalText)
   }
@@ -225,6 +225,6 @@ export class AgentLoop {
   }
 
   async dispose() {
-    await this.session.save()
+    await this.config.saveSession()
   }
 }

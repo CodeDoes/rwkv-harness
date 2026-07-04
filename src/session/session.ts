@@ -68,6 +68,27 @@ export class Session {
     return renderContext(this.context, template)
   }
 
+  /**
+   * Legacy: render context as old-style prompt (matching SessionManager.buildPrompt).
+   * Bridge for Phase 5 so AgentLoop can switch to Session without changing prompt format.
+   */
+  buildPrompt(systemPrompt: string, useRoles = false): string {
+    let prompt = systemPrompt.replace(/[ \t]+(\n|$)/g, "$1") + "\n\n"
+    for (const part of this.context) {
+      if (part.type === "user_message") {
+        prompt += `${useRoles ? "User: " : ""}${part.content.replace(/[ \t]+(\n|$)/g, "$1")}\n\n`
+      } else if (part.type === "text") {
+        prompt += `${useRoles ? "Assistant: " : ""}${part.content.replace(/[ \t]+(\n|$)/g, "$1")}\n\n`
+      } else if (part.type === "tool_response") {
+        const info = part.data.success
+          ? `result: ${JSON.stringify(part.data.data ?? {}).slice(0, 200)}`
+          : `error: ${part.data.error ?? "unknown"}`
+        prompt += `[Tool result: ${info.slice(0, 200)}]\n\n`
+      }
+    }
+    return prompt
+  }
+
   /** Serializable shape for JSONL / wire transfer. */
   toJSON(): SessionJSON {
     return {

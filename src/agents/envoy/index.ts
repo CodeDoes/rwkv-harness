@@ -2,6 +2,7 @@ import { promises as fsp } from "fs"
 import * as path from "path"
 import { fileURLToPath } from "url"
 import type { Engine } from "../../types.ts"
+import { Session } from "../../session/session.ts"
 import { SessionManager } from "../../session/session-manager.ts"
 import { AgentLoop } from "../loop.ts"
 import { GenerateOpts, GenerateCallbacks } from "../../types.ts"
@@ -19,7 +20,8 @@ export class EnvoyAgent {
 
   async chat(
     userInput: string,
-    agentSession: SessionManager,
+    agentSession: Session,
+    mgr: SessionManager,
     callbacks?: GenerateCallbacks,
     opts: Partial<GenerateOpts> = {},
   ): Promise<string> {
@@ -39,12 +41,13 @@ export class EnvoyAgent {
           const workspace = (args.workspace as string) || ""
 
           if (agentName === "storyteller") {
-            const storySession = new SessionManager(
-              agentSession.sessionDirPath,
+            const storyMgr = new SessionManager(
+              mgr.sessionDirPath,
               workspace || "subtask",
               "storyteller",
             )
-            await storySession.ensureDir()
+            await storyMgr.ensureDir()
+            const storySession = new Session({ id: storyMgr.sessionIdStr, agentName: "storyteller" })
 
             const instructions = await fsp.readFile(
               path.join(__dirname, "..", "storyteller", "instructions.mdx"),
@@ -55,15 +58,17 @@ export class EnvoyAgent {
               systemPrompt: instructions,
               toolDefs: storytellerToolDefs,
               toolHandlers: storytellerHandlers,
+              saveSession: () => storyMgr.saveFromSession(storySession),
             })
 
             const result = await subLoop.run(task, undefined, opts)
-            return { summary: result.slice(0, 500), sessionId: storySession.sessionIdStr }
+            return { summary: result.slice(0, 500), sessionId: storySession.id }
           }
 
           return { summary: `Unknown agent: ${agentName}`, sessionId: "" }
         },
       },
+      saveSession: () => mgr.saveFromSession(agentSession),
     })
 
     return loop.run(userInput, callbacks, opts)
