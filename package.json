@@ -26,7 +26,17 @@
     "bench:placement": "bash scripts/bench-placement.sh",
     "test:trace": "tsx src/eval/trace-writer.test.ts",
     "convert:rwkv": "python3 scripts/convert-rwkv.py",
-    "dev:setup": "pnpm install && pnpm build:native"
+    "dev:setup": "pnpm install && pnpm build:native",
+    "grammar:preview": "tsx scripts/preview-grammar.ts",
+    "test:grammar:valid": "tsx src/grammars/grammar-valid.test.ts",
+    "test:grammar:invalid": "tsx src/grammars/grammar-invalid.test.ts",
+    "test:grammar:gen": "tsx src/grammars/grammar-gen.test.ts",
+    "inference:start": "nohup tsx src/cli.ts gateway > .inference.log 2>&1 & echo $! > .inference.pid && echo 'Inference started PID '$(cat .inference.pid)",
+    "inference:stop": "kill $(cat .inference.pid 2>/dev/null) 2>/dev/null; rm -f .inference.pid; echo 'Inference stopped'",
+    "inference:restart": "pnpm inference:stop; sleep 1; pnpm inference:start",
+    "inference:status": "if [ -f .inference.pid ] && kill -0 $(cat .inference.pid) 2>/dev/null; then echo 'Inference running PID '$(cat .inference.pid); else echo 'Inference not running'; fi",
+    "inference:logs": "cat .inference.log",
+    "inference:tail-logs": "tail -f .inference.log"
   },
   "keywords": [],
   "author": "",

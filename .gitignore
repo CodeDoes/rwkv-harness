@@ -11,3 +11,6 @@ native/**/target/
 *.node
 .gateway.log
 .gateway.pid
+.inference.log
+.inference.pid
+.preview.grammar
