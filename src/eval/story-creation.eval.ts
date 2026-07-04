@@ -12,6 +12,7 @@ import type { ToolDef, Engine } from "../types.ts"
 import { HttpModel } from "../model/http-model.ts"
 import { TraceWriter } from "./trace-writer.ts"
 import { LogStream } from "../core/log-stream.ts"
+import { resolveWorkspace, workspaceModeFromEnv, type WorkspaceMode } from "../core/workspace.ts"
 
 // Eval-wide progress mirror → both stderr AND `.eval.log` on disk so
 // `pnpm eval:logs` / `pnpm eval:tail-logs` can surface partial output.
@@ -74,11 +75,17 @@ const trace = new TraceWriter("oracle").open({ mode: "oracle", baseDir })
   const envoy = await loadAgent("envoy")
   const storyteller = await loadAgent("storyteller")
 
+  // Workspace placement: resolved via core/workspace.ts so eval defaults
+  // to `temp` (auto-named under .tmp/workspace/) and CLI / live
+  // commands can opt into `live` with --workspace=live.
+  const mode = workspaceModeFromEnv(process.env, process.argv.slice(2))
+  const ws = resolveWorkspace({ mode, slug: "dragons-oracle", baseDir })
   const controller = new EvalController({
     baseDir,
     model,
     sessionId: "envoy-dragons-oracle",
     trace,
+    workspaceRoot: ws.path,
   })
 
   const originalCwd = process.cwd()

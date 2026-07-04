@@ -8,8 +8,9 @@ import { Session } from "../session/session.ts"
 import { SessionManager } from "../session/session-manager.ts"
 import { toolsToGbnfWithThink } from "../tools/registry.ts"
 import mkdirTool from "../tools/mkdir.ts"
-import { TraceWriter } from "./trace-writer.ts"
+import { TraceWriter } from "../core/trace-writer.ts"
 import { MockModel } from "./mock-engine.ts"
+import { resolveWorkspace, type WorkspaceMode } from "../core/workspace.ts"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PROJECT_ROOT = path.resolve(__dirname, "../..")
@@ -29,17 +30,26 @@ export class EvalController {
   private model: Engine
   private sessionId: string
   private traceWriter: TraceWriter
+  /**
+   * Root directory that relative `workspace/...` paths from the agent
+   * are resolved against. In temp mode this is the per-run temp tree;
+   * in live mode it's the user's project workspace.
+   */
+  private workspaceRoot: string
 
   constructor(cfg: {
     baseDir: string
     model: Engine
     sessionId: string
     trace: TraceWriter
+    /** Where agent-emitted `workspace/...` paths land. Defaults to baseDir. */
+    workspaceRoot?: string
   }) {
     this.baseDir = cfg.baseDir
     this.model = cfg.model
     this.sessionId = cfg.sessionId
     this.traceWriter = cfg.trace
+    this.workspaceRoot = cfg.workspaceRoot ?? cfg.baseDir
   }
 
   get trace(): TraceWriter { return this.traceWriter }
@@ -70,7 +80,10 @@ export class EvalController {
         spawn_agent: async (args) => {
           const agentName = args.agent as string
           const workspacePath = (args.workspace as string) || `workspace/${agentName}-${Date.now().toString(36)}`
-          await mkdirTool({ path: workspacePath })
+          const absoluteWorkspace = path.isAbsolute(workspacePath)
+            ? workspacePath
+            : path.join(this.workspaceRoot, workspacePath)
+          await mkdirTool({ path: absoluteWorkspace })
           const taskText = (args.task as string) || `${userInput} Write files to ${workspacePath}`
           console.error(`\nENVOY spawned "${agentName}"`)
 
@@ -179,7 +192,7 @@ export class EvalController {
     }, { maxTokens: 500, temperature: 0.5 })
     await this.model.interrupt(agentLoop.sessionId).catch(() => {})
 
-    const storyDir = this.findStoryDir(this.baseDir)
+    const storyDir = this.findStoryDir(this.workspaceRoot)
     return {
       finalText,
       subToolCalls,
