@@ -11,6 +11,16 @@ import type { ExampleEntry } from "../agents/example-template.ts"
 import type { ToolDef, Engine } from "../types.ts"
 import { HttpModel } from "../model/http-model.ts"
 import { TraceWriter } from "./trace-writer.ts"
+import { LogStream } from "../core/log-stream.ts"
+
+// Eval-wide progress mirror → both stderr AND `.eval.log` on disk so
+// `pnpm eval:logs` / `pnpm eval:tail-logs` can surface partial output.
+const ELOG_PATH = path.resolve(process.cwd(), ".eval.log")
+const elog = new LogStream({ path: ELOG_PATH, mirror: "stderr", prefix: "" })
+function eLog(msg: string): void {
+  elog.line(msg)
+}
+eLog(`[eval] start pid=${process.pid} cwd=${process.cwd()}`)
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PROJECT_ROOT = path.resolve(__dirname, "../..")

@@ -14,6 +14,7 @@ import { GatewayServer } from "./gateway/server.ts"
 import { GatewayControl } from "./gateway/control.ts"
 import { Tui } from "./tui/index.ts"
 import { GenerateOpts, DEFAULT_GEN_OPTS } from "./types.ts"
+import { LogStream } from "./core/log-stream.ts"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -36,6 +37,7 @@ const fixParagraphs = args.includes("--fix-paragraphs") || args.includes("-p")
 const agentDepth = parseInt(args.find((a) => a.startsWith("--depth="))?.split("=")[1] || "5", 10)
 const grammarPath = args.find((a) => a.startsWith("--grammar="))?.split("=")[1]
 const gatewayPort = parseInt(args.find((a) => a.startsWith("--port="))?.split("=")[1] || "3030", 10)
+const logFileArg = args.find((a) => a.startsWith("--log-file="))?.split("=")[1]
 const input = args.slice(1).filter((a) => !a.startsWith("--")).join(" ")
 
 function makeGrammarPath(p: string): string {
@@ -101,18 +103,27 @@ async function runGateway() {
     }
   } catch { /* no running gateway — good */ }
 
+  // When the user passes --log-file=, tee stderr to that file too.
+  // (Without an explicit arg, the shell redirect in `gateway:start` /
+  // `inference:start` handles durability via `.gateway.log`.)
+  const logStream = logFileArg ? new LogStream({ path: logFileArg, mirror: "stderr" }) : null
+  const log = (msg: string) => {
+    process.stderr.write(msg + "\n")
+    logStream?.line(msg)
+  }
+
   const gwStateDir = path.join(SESSIONS_DIR, "_gateway")
-  console.error(`RWKV Gateway | port: ${gatewayPort} | model: ${path.basename(modelPath)}`)
+  log(`RWKV Gateway | port: ${gatewayPort} | model: ${path.basename(modelPath)}`)
 
   const model = await createModel(modelPath, gwStateDir, true)
   const host = new SessionHost(model, gwStateDir)
   const server = new GatewayServer(host, WEBAPP_DIR, modelPath)
 
   await server.start(gatewayPort)
-  console.error(`  API:  http://0.0.0.0:${gatewayPort}`)
-  console.error(`  WS:   ws://0.0.0.0:${gatewayPort}`)
-  console.error(`  Web:  http://0.0.0.0:${gatewayPort}`)
-  console.error(`  Loading model (health endpoint live)...`)
+  log(`  API:  http://0.0.0.0:${gatewayPort}`)
+  log(`  WS:   ws://0.0.0.0:${gatewayPort}`)
+  log(`  Web:  http://0.0.0.0:${gatewayPort}`)
+  log(`  Loading model (health endpoint live)...`)
 
   await Promise.all([
     model.init(gpuArg, loraPaths),
@@ -120,11 +131,12 @@ async function runGateway() {
   ])
   await host.init()
   server.markReady()
-  console.error(`  Sessions: ${(await host.listSessions()).length}`)
+  log(`  Sessions: ${(await host.listSessions()).length}`)
 
   const shutdown = async () => {
-    console.error("\nShutting down...")
+    log("\nShutting down...")
     await server.stop()
+    logStream?.close()
     process.exit(0)
   }
   process.on("SIGINT", shutdown)
