@@ -1,14 +1,14 @@
 import { promises as fsp } from "fs"
 import * as fs from "fs"
 import * as path from "path"
-import type { Model, MoSEConfig, MoSEExpert, MoseBlendWeights, MoSEHandle, LoRAHandle } from "../types.ts"
+import type { Engine, MoSEConfig, MoSEExpert, MoseBlendWeights, MoSEHandle, LoRAHandle } from "../types.ts"
 
 export class MoSEEngine implements MoSEHandle {
-  private model: Model
+  private model: Engine
   private stateDir: string
   private experts: Map<string, MoSEExpert> = new Map()
 
-  constructor(model: Model, stateDir: string) {
+  constructor(model: Engine, stateDir: string) {
     this.model = model
     this.stateDir = stateDir
   }
@@ -147,7 +147,7 @@ export class LoRAManager implements LoRAHandle {
   private adapters: Map<string, { filePath: string; scale: number }> = new Map()
   private active: string[] = []
 
-  constructor(_model: Model) { }
+  constructor(_model: Engine) { }
 
   add(name: string, filePath: string, scale: number = 1.0): void {
     this.adapters.set(name, { filePath, scale })

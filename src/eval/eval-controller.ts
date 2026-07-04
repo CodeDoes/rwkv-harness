@@ -1,7 +1,7 @@
 import * as fs from "fs"
 import * as path from "path"
 import { fileURLToPath } from "url"
-import type { Model, ToolDef } from "../types.ts"
+import type { Engine, ToolDef } from "../types.ts"
 import type { LoadedAgent } from "../agents/agent-loader.ts"
 import { AgentLoop } from "../agents/loop.ts"
 import { SessionManager } from "../session/session-manager.ts"
@@ -25,13 +25,13 @@ export interface Check { name: string; pass: boolean }
 
 export class EvalController {
   private baseDir: string
-  private model: Model
+  private model: Engine
   private sessionId: string
   private traceWriter: TraceWriter
 
   constructor(cfg: {
     baseDir: string
-    model: Model
+    model: Engine
     sessionId: string
     trace: TraceWriter
   }) {

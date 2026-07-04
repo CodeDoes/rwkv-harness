@@ -133,7 +133,7 @@ export interface ChatMessage {
   timestamp: string
 }
 
-// --- Model interface ---
+// --- Engine interface ---
 
 export interface MoSEHandle {
   createExpert(name: string, text: string, weight?: number): Promise<MoSEExpert>
@@ -156,7 +156,7 @@ export interface LoRAHandle {
   deactivateAll(): Promise<void>
 }
 
-export interface Model {
+export interface Engine {
   init(gpu?: string, loraPaths?: unknown): Promise<void>
   dispose(): Promise<void>
   tokenize(text: string): number[]

@@ -1,7 +1,7 @@
 import { promises as fsp } from "fs"
 import * as path from "path"
 import { fileURLToPath } from "url"
-import type { Model } from "../../types.ts"
+import type { Engine } from "../../types.ts"
 import { SessionManager } from "../../session/session-manager.ts"
 import { StoryState, ChapterInfo, DEFAULT_GEN_OPTS, GenerateOpts } from "../../types.ts"
 import { toolsToGbnfResponse } from "../../tools/registry.ts"
@@ -18,13 +18,13 @@ function cleanOutput(text: string): string {
 const RESPONSE_GRAMMAR = toolsToGbnfResponse()
 
 export class StorytellerAgent {
-  private model: Model
+  private model: Engine
   private session: SessionManager
   private storyState: StoryState | null = null
   private systemPrompt: string = ""
 
   constructor(
-    model: Model,
+    model: Engine,
     session: SessionManager,
     _config?: { fixParagraphBreak?: boolean },
   ) {

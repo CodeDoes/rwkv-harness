@@ -1,7 +1,7 @@
 import { createRequire } from "node:module"
 import {
   DEFAULT_GEN_OPTS,
-  type Model,
+  type Engine,
   type MoSEHandle,
   type LoRAHandle,
   type ProcessOpts,
@@ -57,7 +57,7 @@ function loadBinding(): RwSessionConstructor {
   }
 }
 
-export class NativeRwkvModel implements Model {
+export class NativeRwkvModel implements Engine {
   private binding: RwSessionInstance | null = null
   private modelPath: string
   private stateDir: string
@@ -72,8 +72,8 @@ export class NativeRwkvModel implements Model {
   constructor(modelPath: string, stateDir: string) {
     this.modelPath = modelPath
     this.stateDir = stateDir
-    this.mose = new MoSEEngine(this as Model, stateDir)
-    this.loraMgr = new LoRAManager(this as Model)
+    this.mose = new MoSEEngine(this as Engine, stateDir)
+    this.loraMgr = new LoRAManager(this as Engine)
   }
 
   async init(gpu?: string, loraPaths?: unknown): Promise<void> {

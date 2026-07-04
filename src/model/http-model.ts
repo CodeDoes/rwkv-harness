@@ -1,4 +1,4 @@
-import type { Model, MoseBlendWeights, MoSEHandle, LoRAHandle, MoSEExpert, ProcessOpts, GenerateRequest, GenerateResult, StreamGenerateRequest } from "../types.ts"
+import type { Engine, MoseBlendWeights, MoSEHandle, LoRAHandle, MoSEExpert, ProcessOpts, GenerateRequest, GenerateResult, StreamGenerateRequest } from "../types.ts"
 import { spawn } from "child_process"
 import { createRpcClient, type RpcClient } from "../rpc/client.ts"
 
@@ -6,7 +6,7 @@ function trimSlash(s: string): string {
   return s.replace(/\/$/, "")
 }
 
-export class HttpModel implements Model {
+export class HttpModel implements Engine {
   private readonly rpc: RpcClient
   private readonly rpcUrl: string
   private _modelPath: string = ""

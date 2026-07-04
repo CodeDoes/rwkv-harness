@@ -1,6 +1,6 @@
 import { dirname, resolve } from "path"
 import { fileURLToPath } from "url"
-import type { Model } from "../types.ts"
+import type { Engine } from "../types.ts"
 import { SessionManager } from "../session/session-manager.ts"
 import { GenerateOpts, DEFAULT_GEN_OPTS, GenerateCallbacks, ToolCall, ToolResult, ToolDef, ToolHandler } from "../types.ts"
 import { toolDefs as defaultToolDefs, toolHandlers as defaultHandlers, toolsToXml, toolsToGbnfWithThink } from "../tools/registry.ts"
@@ -11,56 +11,14 @@ import {
   formatToolResponseRole,
   formatAssistantRole,
 } from "./format-config.ts"
-
-function clean(txt: string): string {
-  return txt.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim()
-}
+import { clean, fixToolCallJson } from "../model/adapter-utils.ts"
+import { parseToolCalls as adapterParseToolCalls } from "../model/adapter.ts"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const AGENTS_DIR = resolve(__dirname, "../agents")
 
 const DEFAULT_SYSTEM_PREAMBLE = `You can use tools to read and write files. Output tool calls inside <tool_call> tags.`
 const DEFAULT_EXAMPLES = renderDefaultExamples()
-
-function fixToolCallJson(raw: string): string {
-  try { JSON.parse(raw); return raw } catch {}
-
-  let result = ""
-  let inString = false
-  let escaped = false
-
-  const escapeMap: Record<string, string> = {
-    "\n": "\\n",
-    "\r": "\\r",
-    "\t": "\\t",
-  }
-
-  for (let i = 0; i < raw.length; i++) {
-    const ch = raw[i]
-    if (ch === "\\" && inString) { result += ch; escaped = true; continue }
-    if (escaped) { result += ch; escaped = false; continue }
-
-    if (ch === '"') {
-      if (!inString) {
-        inString = true
-        result += '"'
-      } else {
-        const rest = raw.slice(i + 1).trimStart()
-        if (rest.length > 0 && ',:}]'.includes(rest[0])) {
-          inString = false
-          result += '"'
-        } else {
-          result += '\\"'
-        }
-      }
-    } else if (inString && escapeMap[ch] !== undefined) {
-      result += escapeMap[ch]
-    } else {
-      result += ch
-    }
-  }
-  return result
-}
 
 export interface AgentLoopConfig {
   systemPrompt?: string
@@ -73,7 +31,7 @@ export interface AgentLoopConfig {
 }
 
 export class AgentLoop {
-  private model: Model
+  private model: Engine
   private session: SessionManager
   private maxDepth: number
   private config: Required<AgentLoopConfig>
@@ -82,7 +40,7 @@ export class AgentLoop {
   private lastCallSignatures: string[] = []
   private template: ReturnType<typeof getTemplate>
 
-  constructor(model: Model, session: SessionManager, maxDepth = 5, config?: AgentLoopConfig) {
+  constructor(model: Engine, session: SessionManager, maxDepth = 5, config?: AgentLoopConfig) {
     this.model = model
     this.session = session
     this.maxDepth = maxDepth
@@ -165,7 +123,7 @@ export class AgentLoop {
         break
       }
 
-      const { text, toolCalls, errors } = this.parseToolCalls(raw)
+      const { text, toolCalls, errors } = adapterParseToolCalls(raw)
       callbacks?.onText?.(text)
       finalText += text
 
@@ -228,84 +186,6 @@ export class AgentLoop {
       return `- ${t.name}(${params}) — ${t.description}`
     }).join("\n")
     return clean("System: " + this.config.systemPrompt + "\n\nTools:\n" + tools)
-  }
-
-  parseToolCalls(text: string): {
-    text: string
-    toolCalls: ToolCall[]
-    beforeFirst: string
-    errors: ToolCall[]
-  } {
-    const toolCalls: ToolCall[] = []
-    const errors: ToolCall[] = []
-    const segments: string[] = []
-    let lastIndex = 0
-
-    const toolCallTag = /<tool_call>/g
-    let tagMatch: RegExpExecArray | null
-    while ((tagMatch = toolCallTag.exec(text)) !== null) {
-      const openPos = tagMatch.index
-      segments.push(text.slice(lastIndex, openPos))
-      const searchStart = tagMatch.index + tagMatch[0].length
-
-      const closeTag = text.indexOf("</tool_call>", searchStart)
-      if (closeTag === -1) {
-        lastIndex = openPos
-        break
-      }
-
-      const body = text.slice(searchStart, closeTag)
-      const braceStart = body.indexOf("{")
-      if (braceStart === -1) {
-        errors.push({ name: "__parse_error__", args: { raw: text.slice(openPos, closeTag + 12) } })
-        lastIndex = closeTag + 12
-        continue
-      }
-
-      let depth = 0
-      let inStr = false
-      let escaped = false
-      let matchEnd = -1
-      for (let i = braceStart; i < body.length; i++) {
-        const ch = body[i]
-        if (escaped) { escaped = false; continue }
-        if (ch === "\\" && inStr) { escaped = true; continue }
-        if (ch === '"') { inStr = !inStr; continue }
-        if (!inStr) {
-          if (ch === "{") depth++
-          else if (ch === "}") {
-            depth--
-            if (depth === 0) { matchEnd = i + 1; break }
-          }
-        }
-      }
-
-      if (matchEnd === -1) {
-        errors.push({ name: "__parse_error__", args: { raw: text.slice(openPos, closeTag + 12) } })
-        lastIndex = closeTag + 12
-        continue
-      }
-
-      const jsonRaw = body.slice(braceStart, matchEnd)
-      lastIndex = closeTag + 12
-      try {
-        const json = fixToolCallJson(jsonRaw)
-        const parsed = JSON.parse(json)
-        if (!parsed.name || typeof parsed.name !== "string") throw new Error("missing name")
-        const args = parsed.arguments ?? parsed.args
-        if (!args || typeof args !== "object" || Array.isArray(args)) throw new Error("missing arguments object")
-        const call: ToolCall = { name: parsed.name, args }
-        toolCalls.push(call)
-      } catch (e) {
-        errors.push({ name: "__parse_error__", args: { raw: text.slice(openPos, lastIndex) } })
-      }
-    }
-    segments.push(text.slice(lastIndex))
-
-    const beforeFirst = segments[0] ?? ""
-    const cleaned = segments.join("").trim()
-
-    return { text: cleaned, toolCalls, beforeFirst, errors }
   }
 
   private isRepeatedLoop(call: ToolCall, depth: number): boolean {

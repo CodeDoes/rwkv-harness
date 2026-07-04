@@ -1,7 +1,7 @@
 import { promises as fsp } from "fs"
 import * as path from "path"
 import { fileURLToPath } from "url"
-import type { Model } from "../../types.ts"
+import type { Engine } from "../../types.ts"
 import { SessionManager } from "../../session/session-manager.ts"
 import { AgentLoop } from "../loop.ts"
 import { GenerateOpts, GenerateCallbacks } from "../../types.ts"
@@ -11,9 +11,9 @@ import { toolDefs as storytellerToolDefs, toolHandlers as storytellerHandlers } 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 export class EnvoyAgent {
-  private model: Model
+  private model: Engine
 
-  constructor(model: Model) {
+  constructor(model: Engine) {
     this.model = model
   }
 

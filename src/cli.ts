@@ -4,7 +4,7 @@ import * as path from "path"
 import { fileURLToPath } from "url"
 import { NativeRwkvModel } from "./model/native-rwkv-model.ts"
 import { HttpModel } from "./model/http-model.ts"
-import type { Model } from "./types.ts"
+import type { Engine } from "./types.ts"
 import { SessionManager } from "./session/session-manager.ts"
 import { StorytellerAgent } from "./agents/storyteller/index.ts"
 import { AgentLoop } from "./agents/loop.ts"
@@ -51,7 +51,7 @@ async function main() {
   }
 }
 
-async function tryGatewayAuto(gatewayPort: number): Promise<Model | null> {
+async function tryGatewayAuto(gatewayPort: number): Promise<Engine | null> {
   try {
     const r = await fetch(`http://127.0.0.1:${gatewayPort}/rpc/health`, { signal: AbortSignal.timeout(1500) })
     if (r.ok) {
@@ -62,7 +62,7 @@ async function tryGatewayAuto(gatewayPort: number): Promise<Model | null> {
   return null
 }
 
-async function createModel(modelPath: string, stateDir: string): Promise<Model> {
+async function createModel(modelPath: string, stateDir: string): Promise<Engine> {
   if (engineUrl) {
     console.error(`Model: remote (${engineUrl})`)
     return new HttpModel(engineUrl)

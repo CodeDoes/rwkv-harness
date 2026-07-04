@@ -1,7 +1,7 @@
 import * as readline from "readline"
 import * as path from "path"
 import { NativeRwkvModel } from "../model/native-rwkv-model.ts"
-import type { Model } from "../types.ts"
+import type { Engine } from "../types.ts"
 import { SessionHost } from "../session/session-host.ts"
 import { GatewayServer } from "../gateway/server.ts"
 import { DEFAULT_GEN_OPTS } from "../types.ts"

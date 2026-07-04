@@ -1,18 +1,18 @@
 import { implement } from "@orpc/server"
 import { OpenAPIHandler } from "@orpc/openapi/node"
 import { OpenAPIGenerator } from "@orpc/openapi"
-import type { Model, GenerateResult } from "../types.ts"
+import type { Engine, GenerateResult } from "../types.ts"
 import type { SessionHost } from "../session/session-host.ts"
 import { contract } from "./contract.ts"
 
 export interface RpcContext {
-  model: Model
+  model: Engine
   host: SessionHost
 }
 
 const base = implement(contract)
 
-function createRouter(model: Model, host: SessionHost, modelPath: string, modelReady: () => boolean) {
+function createRouter(model: Engine, host: SessionHost, modelPath: string, modelReady: () => boolean) {
   const modelName = modelPath.split("/").pop() || modelPath
   return base.router({
     health: base.health.handler(async () => {
@@ -164,7 +164,7 @@ function createRouter(model: Model, host: SessionHost, modelPath: string, modelR
 let routerInstance: ReturnType<typeof createRouter> | null = null
 
 export function createOpenAPIHandler(
-  model: Model,
+  model: Engine,
   host: SessionHost,
   modelPath = "unknown",
   modelReady: () => boolean = () => true,

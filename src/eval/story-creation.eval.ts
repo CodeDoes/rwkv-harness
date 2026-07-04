@@ -7,7 +7,7 @@ import { EvalController, type Check } from "./eval-controller.ts"
 import { loadAgent } from "../agents/agent-loader.ts"
 import { renderExamples, renderAssistantTurn } from "../agents/examples.ts"
 import type { ExampleEntry } from "../agents/example-template.ts"
-import type { ToolDef, Model } from "../types.ts"
+import type { ToolDef, Engine } from "../types.ts"
 import { HttpModel } from "../model/http-model.ts"
 import { TraceWriter } from "./trace-writer.ts"
 
@@ -161,7 +161,7 @@ const trace = new TraceWriter("oracle").open({ mode: "oracle", baseDir })
  *   the total wait exceeds `waitMs`.
  * - If the first probe already says "ok", returns immediately.
  */
-async function tryConnectGateway(port = 3030, opts: { waitMs?: number; pollMs?: number } = {}): Promise<Model | null> {
+async function tryConnectGateway(port = 3030, opts: { waitMs?: number; pollMs?: number } = {}): Promise<Engine | null> {
   const { waitMs = 5 * 60 * 1000, pollMs = 2000 } = opts
   const url = `http://127.0.0.1:${port}/rpc/health`
   const deadline = Date.now() + waitMs

@@ -1,5 +1,5 @@
 import type {
-  Model,
+  Engine,
   GenerateRequest,
   GenerateResult,
   MoSEHandle,
@@ -8,7 +8,7 @@ import type {
   StreamGenerateRequest,
 } from "../types.ts"
 
-export class MockModel implements Model {
+export class MockModel implements Engine {
   private responses: string[]
   private callIndex = 0
   public prompts: string[] = []

@@ -1,6 +1,6 @@
 import * as path from "path"
 import { promises as fsp } from "fs"
-import type { Model } from "../types.ts"
+import type { Engine } from "../types.ts"
 import { AgentLoop } from "../agents/loop.ts"
 import { SessionManager } from "./session-manager.ts"
 import { GenerateOpts, DEFAULT_GEN_OPTS, SessionInfo, ChatMessage } from "../types.ts"
@@ -9,13 +9,13 @@ import { toolDefs, toolsToXml } from "../tools/registry.ts"
 const SYSTEM_PREAMBLE = `You are a helpful AI assistant with file system access. You can read, write, edit files, list directories, and search file contents.`
 
 export class SessionHost {
-  _model: Model
+  _model: Engine
   stateDir: string
   currentLabel: string = "default"
   sessions: Map<string, { label: string; messages: ChatMessage[] }> = new Map()
   sessionManager: SessionManager
 
-  constructor(model: Model, stateDir: string) {
+  constructor(model: Engine, stateDir: string) {
     this._model = model
     this.stateDir = stateDir
     this.sessionManager = new SessionManager(stateDir, "_agent", "unknown")
@@ -60,7 +60,7 @@ export class SessionHost {
     await fsp.writeFile(this.sessionIndexPath(), JSON.stringify(data, null, 2), "utf-8")
   }
 
-  get model(): Model {
+  get model(): Engine {
     return this._model
   }
 
