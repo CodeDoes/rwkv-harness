@@ -68,9 +68,7 @@ export class AgentLoop {
       useStateTuneCache: useCache,
     }
     const cache: StateTuneCache | null = useCache ? getDefaultStateTuneCache() : null
-    if (typeof (model as Partial<Engine> & { setStateTuneCache?: unknown }).setStateTuneCache === "function") {
-      (model as unknown as { setStateTuneCache(c: StateTuneCache | null): void }).setStateTuneCache(cache)
-    }
+    model.setStateTuneCache?.(cache)
     this.sessionId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
     this.initPromise = model.process({
       systemPrompt: this.config.systemPrompt,

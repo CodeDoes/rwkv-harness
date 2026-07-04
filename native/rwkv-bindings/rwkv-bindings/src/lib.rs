@@ -69,6 +69,13 @@ pub struct RWSession {
     tokenizer: Option<Tokenizer>,
     token_strings: Vec<String>,
     grammar: Option<Grammar>,
+    /// Safetensors file cached in host RAM. Kept across unbind cycles
+    /// so `bind_gpu` can rebuild the model without re-reading the disk.
+    model_bytes: Option<Vec<u8>>,
+    /// Path → kept so we can rebuild the bundle after an unbind.
+    /// (`build_v7` needs the safetensors structure, which `Memmap` can
+    /// produce directly from `model_bytes`.)
+    model_info: Option<(usize, usize)>, // (num_layer, hidden_size) - cached from Loader::info
 }
 
 #[napi]
@@ -81,7 +88,90 @@ impl RWSession {
             tokenizer: None,
             token_strings: Vec::new(),
             grammar: None,
+            model_bytes: None,
+            model_info: None,
         })
+    }
+
+    /// Read the safetensors file into host RAM. Does NOT touch VRAM.
+    /// Optional pre-step before `init` keeps the model on disk-mmap
+    /// only; combined with `unbind_gpu` / `bind_gpu` this gives full
+    /// host-RAM residency with on-demand VRAM promotion.
+    #[napi]
+    pub async unsafe fn prepare_ram(&mut self, model_path: String) -> Result<()> {
+        let model_path = std::path::Path::new(&model_path);
+        let data = std::fs::read(model_path)
+            .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to read model: {}", e)))?;
+        let safet = safetensors::SafeTensors::deserialize(&data)
+            .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
+        let info = Loader::info(&safet)
+            .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
+        self.model_info = Some((info.num_layer, info.num_emb));
+        self.model_bytes = Some(data);
+        Ok(())
+    }
+
+    /// True when the runtime is currently allocated (VRAM-resident).
+    #[napi]
+    pub fn is_gpu_bound(&self) -> bool {
+        self.runtime.is_some()
+    }
+
+    /// Drop the runtime + bundled state, freeing VRAM. The model
+    /// weights remain resident in host RAM (set via `prepare_ram` or
+    /// copied during init). Safe to call when not bound.
+    #[napi]
+    pub fn unbind_gpu(&mut self) -> Result<()> {
+        self.runtime = None;
+        self.state = None;
+        Ok(())
+    }
+
+    /// Rebuild the runtime from the cached safetensors bytes,
+    /// re-uploading weights to VRAM. Used after `unbind_gpu` to
+    /// restore generation capability without re-reading the disk.
+    /// No-op when already bound.
+    #[napi]
+    pub async unsafe fn bind_gpu(&mut self, quant_layers: Option<u32>) -> Result<()> {
+        if self.runtime.is_some() { return Ok(()); }
+        let bytes = self.model_bytes.as_ref()
+            .ok_or_else(|| Error::new(Status::GenericFailure, "no model in RAM; call prepare_ram first"))?;
+        let safet = safetensors::SafeTensors::deserialize(bytes)
+            .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
+        let info = Loader::info(&safet)
+            .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
+
+        let instance = wgpu::Instance::default();
+        let adapter = instance
+            .adapter(wgpu::PowerPreference::HighPerformance)
+            .await
+            .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
+        let context = ContextBuilder::new(adapter)
+            .auto_limits(&info)
+            .build()
+            .await
+            .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
+
+        let mut quant: std::collections::HashMap<usize, Quant> = std::collections::HashMap::new();
+        for layer in 0..(quant_layers.unwrap_or(0) as usize) {
+            quant.insert(layer, Quant::Int8);
+        }
+        let builder = ModelBuilder::new(&context, safet).quant(quant);
+        match info.version {
+            ModelVersion::V7 => {
+                let model = builder
+                    .build_v7()
+                    .await
+                    .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
+                let bundle = v7::Bundle::<f16>::new(model, 1);
+                let state_copy = bundle.state();
+                self.state = Some(Box::new(state_copy));
+                let os_runtime = TokioRuntime::<Rnn>::new(bundle).await;
+                self.runtime = Some(os_runtime);
+            }
+            _ => return Err(Error::new(Status::GenericFailure, "Only RWKV v7 supported")),
+        }
+        Ok(())
     }
 
     #[napi]
@@ -121,14 +211,19 @@ impl RWSession {
             .collect();
         self.token_strings = token_strings;
 
-        let file = std::fs::File::open(model_path)
+        // Cache bytes for VRAM-eviction cycles.
+        let data = std::fs::read(model_path)
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
-        let data = unsafe { memmap2::Mmap::map(&file) }
+        let safet = safetensors::SafeTensors::deserialize(&data)
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
-        let model = safetensors::SafeTensors::deserialize(&data)
+        let info = Loader::info(&safet)
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
-        let info = Loader::info(&model)
-            .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
+
+        let quant_layers = quant_layers.unwrap_or(0) as usize;
+        let mut quant: std::collections::HashMap<usize, Quant> = std::collections::HashMap::new();
+        for layer in 0..quant_layers {
+            quant.insert(layer, Quant::Int8);
+        }
 
         let instance = wgpu::Instance::default();
         let adapter = instance
@@ -140,11 +235,7 @@ impl RWSession {
             .build()
             .await
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
-
-        let quant = (0..quant_layers.unwrap_or(0) as usize)
-            .map(|layer| (layer, Quant::Int8))
-            .collect();
-        let builder = ModelBuilder::new(&context, model).quant(quant);
+        let builder = ModelBuilder::new(&context, safet).quant(quant);
 
         match info.version {
             ModelVersion::V7 => {
@@ -159,6 +250,10 @@ impl RWSession {
                 let os_runtime = TokioRuntime::<Rnn>::new(bundle).await;
                 self.runtime = Some(os_runtime);
                 self.tokenizer = Some(tokenizer);
+                // Now `data` is no longer borrowed by `safet`; we can
+                // cache the bytes for later VRAM-eviction cycles.
+                self.model_info = Some((info.num_layer, info.num_emb));
+                self.model_bytes = Some(data);
             }
             _ => return Err(Error::new(Status::GenericFailure, "Only RWKV v7 supported")),
         }

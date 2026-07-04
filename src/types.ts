@@ -175,6 +175,19 @@ export interface Engine {
   getStateSize(): number
   mose: MoSEHandle
   loraMgr: LoRAHandle
+  /**
+   * Optional: plug a content-hash cache that lets `process()` skip
+   * re-running `evaluate()` on the examples it's already baked.
+   * The native RWKV binding implements this; HTTP / Mock engines
+   * may safely no-op or leave the method undefined.
+   */
+  setStateTuneCache?(cache: import("./core/state-tune-cache.ts").StateTuneCache | null): void
+  /** Drop the VRAM bundle. Bytes remain in host RAM. */
+  unbindFromGpu?(): Promise<void>
+  /** Re-promote to VRAM. */
+  bindToGpu?(): Promise<void>
+  /** True when VRAM-resident. */
+  isGpuBound?(): boolean
 }
 
 // --- MoSE types ---

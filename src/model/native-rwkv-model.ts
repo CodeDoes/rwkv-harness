@@ -28,6 +28,14 @@ interface RwSessionInstance {
   evaluate(text: string): Promise<void>
   setGrammar(grammar: string): void
   clearGrammar(): void
+  /** Read model file into host RAM (no VRAM). */
+  prepareRam(modelPath: string): Promise<void>
+  /** Re-upload from RAM and rebuild runtime. */
+  bindGpu(quantLayers?: number): Promise<void>
+  /** Drop runtime, free VRAM; bytes remain in RAM. */
+  unbindGpu(): void
+  /** True when runtime currently allocated. */
+  isGpuBound(): boolean
 }
 
 interface RwSessionConstructor {
@@ -82,6 +90,35 @@ export class NativeRwkvModel implements Engine {
     this.binding = new Ctor()
     if (!this.binding) throw new Error("Failed to create native session")
     await this.binding.init(this.modelPath, undefined, 32)
+  }
+
+  /**
+   * Drop the GPU bundle (VRAM). The safetensors bytes remain in
+   * host RAM (cached during init). The model is `isGpuBound() ===
+   * false`; future calls to `inferStream`/`infer` will trigger a
+   * `bindGpu()` first.
+   */
+  async unbindFromGpu(): Promise<void> {
+    this.ensure().unbindGpu()
+  }
+
+  /** VRAM-resident? */
+  isGpuBound(): boolean {
+    return this.ensure().isGpuBound()
+  }
+
+  /**
+   * Re-promote the cached safetensors bytes back to VRAM and rebuild
+   * the runtime. The next generation will use the new VRAM context.
+   * Caller is responsible for any state-restore via `loadCheckpoint`
+   * — state is dropped alongside the runtime when unbound.
+   */
+  async bindToGpu(): Promise<void> {
+    this.ensure().bindGpu(32)
+  }
+
+  private async ensureGpu(): Promise<void> {
+    if (!this.isGpuBound()) await this.bindToGpu()
   }
 
   private ensure(): RwSessionInstance {
@@ -142,6 +179,7 @@ export class NativeRwkvModel implements Engine {
   }
 
   async evaluate(text: string): Promise<void> {
+    await this.ensureGpu()
     await this.ensure().evaluate(text)
   }
 
@@ -219,6 +257,7 @@ export class NativeRwkvModel implements Engine {
   }
 
   async streamGenerate(req: StreamGenerateRequest): Promise<GenerateResult> {
+    await this.ensureGpu()
     const binding = this.ensure()
     const live = this.live.get(req.sessionId)
     if (live?.aborted) {

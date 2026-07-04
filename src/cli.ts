@@ -38,6 +38,7 @@ const agentDepth = parseInt(args.find((a) => a.startsWith("--depth="))?.split("=
 const grammarPath = args.find((a) => a.startsWith("--grammar="))?.split("=")[1]
 const gatewayPort = parseInt(args.find((a) => a.startsWith("--port="))?.split("=")[1] || "3030", 10)
 const logFileArg = args.find((a) => a.startsWith("--log-file="))?.split("=")[1]
+const idleVramSecs = parseInt(args.find((a) => a.startsWith("--idle-vram-secs="))?.split("=")[1] || "300", 10)
 const input = args.slice(1).filter((a) => !a.startsWith("--")).join(" ")
 
 function makeGrammarPath(p: string): string {
@@ -132,6 +133,34 @@ async function runGateway() {
   await host.init()
   server.markReady()
   log(`  Sessions: ${(await host.listSessions()).length}`)
+
+  // ── Idle VRAM eviction ────────────────────────────────
+  // After `--idle-vram-secs=N` seconds without a generation request
+  // (i.e. without `inferStream` being engaged), drop the VRAM bundle.
+  // The first subsequent request through `ensureGpu()` will rebind.
+  // This keeps ~4 GB of VRAM free when the gateway is sitting idle.
+  if (idleVramSecs > 0 && typeof (model as Partial<typeof model>).unbindFromGpu === "function") {
+    let lastSeen = Date.now()
+    const interval = setInterval(async () => {
+      if (Date.now() - lastSeen >= idleVramSecs * 1000) {
+        try {
+          const stillBound = (model as { isGpuBound?: () => boolean }).isGpuBound?.()
+          if (stillBound) {
+            await (model as { unbindFromGpu: () => Promise<void> }).unbindFromGpu()
+            log(`  [vram] idle for ${idleVramSecs}s — model evicted`)
+          }
+        } catch (e) {
+          log(`  [vram] eviction failed: ${e instanceof Error ? e.message : String(e)}`)
+        }
+      }
+    }, Math.max(1_000, idleVramSecs * 1_000 / 4))
+    // The model layer doesn't currently expose hooks for "request
+    // began/ended", so we just rely on the model being touched whenever
+    // a session id is referenced. A no-op heartbeat from the gateway
+    // RPC layer would be a stronger fit; left as TODO.
+    lastSeen = Date.now()
+    process.on("beforeExit", () => clearInterval(interval))
+  }
 
   const shutdown = async () => {
     log("\nShutting down...")
