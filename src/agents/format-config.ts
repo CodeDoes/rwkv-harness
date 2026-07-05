@@ -14,7 +14,7 @@
  * Override via environment variables for live experiments without rebuild:
  *
  *   SEP=                        default "\n\n"
- *   STOP_SEQ="</tool_call>,User:,x03"   comma-separated
+ *   STOP_SEQ="</tool_call>,User:"   comma-separated
  *   TOOL_RESPONSE_PLACEMENT=block|inline
  *   SUBAGENT_WRAP=xml|none
  *   INDENT_STYLE=all-indented|tags-flush
@@ -80,11 +80,10 @@ function resolveSep(env?: string): string {
 }
 
 function resolveStops(env?: string): StopSequences {
-  const defaultList = ["</tool_call>", "\n\nUser:", "\x03"];
+  const defaultList = ["</tool_call>", "\n\nUser:"];
   if (!env) return { primary: defaultList[0], list: [...defaultList] };
   const parsed = env.split(",").map((s) => {
     const trimmed = s.trim();
-    if (trimmed === "x03") return "\x03";
     if (trimmed === "User:") return "\n\nUser:";
     return trimmed;
   });

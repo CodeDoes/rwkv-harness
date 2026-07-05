@@ -11,7 +11,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 function cleanOutput(text: string): string {
   return text
     .replace(/^Assistant:\s*/i, "")
-    .replace(/\x03/g, "")
     .trim()
 }
 
@@ -62,14 +61,13 @@ export class StorytellerAgent {
       opts: {
         ...DEFAULT_GEN_OPTS,
         temperature: 0.85,
-        stopSequences: ["\x03"],
         grammar: RESPONSE_GRAMMAR,
         ...opts,
       },
     })
     await this.model.interrupt(sessionId)
 
-    const rawStripped = result.text.replace(/\x03/g, "")
+    const rawStripped = result.text
     const cleaned = cleanOutput(rawStripped)
     this.session.addMessage({ role: "user", content: userInput })
     this.session.addMessage({ role: "assistant", content: rawStripped })
@@ -96,7 +94,6 @@ export class StorytellerAgent {
       opts: {
         ...DEFAULT_GEN_OPTS,
         temperature: 0.85,
-        stopSequences: ["\x03"],
         grammar: RESPONSE_GRAMMAR,
         ...opts,
       },
@@ -104,7 +101,7 @@ export class StorytellerAgent {
     })
     await this.model.interrupt(sessionId)
 
-    const rawStripped = result.text.replace(/\x03/g, "")
+    const rawStripped = result.text
     const cleaned = cleanOutput(rawStripped)
     this.session.addMessage({ role: "user", content: userInput })
     this.session.addMessage({ role: "assistant", content: rawStripped })

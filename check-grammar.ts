@@ -25,7 +25,7 @@ async function test() {
       const testTokens = [
         "hello", " world", "<think>", "</think>", "<tool_call>", "</tool_call>",
         '{"name":"write","arguments":{"path":"test","content":"hello"}}',
-        "\n\nUser:", "\x03",
+        "\n\nUser:",
       ]
       const allowed = gs.allowed_tokens(testTokens)
       for (let i = 0; i < testTokens.length; i++) {

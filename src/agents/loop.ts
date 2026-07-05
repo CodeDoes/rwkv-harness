@@ -20,6 +20,16 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const AGENTS_DIR = resolve(__dirname, "../agents")
 
 const DEFAULT_SYSTEM_PREAMBLE = `You can use tools to read and write files. Output tool calls inside <tool_call> tags.`
+
+/**
+ * Grammar for continuation calls (mid-tool-call JSON, max_length hit).
+ * Allows ANY character — schoolmarm GBNF cannot express `</tool_call>`
+ * as a single-token alternative in a subword tokenizer, so [^<]* would
+ * prevent closing truncated tool calls/think blocks entirely.  By
+ * letting through all characters the model can complete whatever was
+ * interrupted; stop sequences bound the generation length.
+ */
+const CONTINUATION_GRAMMAR = `root ::= .*`
 const DEFAULT_EXAMPLES = renderDefaultExamples()
 
 export interface AgentLoopConfig {
@@ -96,6 +106,11 @@ export class AgentLoop {
     )
     let finalText = ""
     let depth = 0
+    let continuation = false
+    let continuationAccum = ""
+    let continuationBailout = 0
+    let emptyRetryCount = 0
+    let thinkBlockRetryCount = 0
 
     while (depth < this.maxDepth) {
       callbacks?.onPrompt?.(fullPrompt)
@@ -107,7 +122,7 @@ export class AgentLoop {
           ...DEFAULT_GEN_OPTS,
           temperature: 0.7,
           stopSequences: [...cfg.stops.list],
-          grammar: toolsToGbnfWithThink(this.config.toolDefs),
+          ...(continuation ? { grammar: CONTINUATION_GRAMMAR } : { grammar: toolsToGbnfWithThink(this.config.toolDefs) }),
           ...opts,
         },
         onToken: (token: string) => {
@@ -117,10 +132,12 @@ export class AgentLoop {
       })
       if (genRes.text.length > rawRaw.length) rawRaw = genRes.text
 
-      const raw = rawRaw.replace(/\x03/g, "")
+      const raw = rawRaw
       const endedWithToolCall = raw.endsWith("</tool_call>")
-      const endedWithUser = !endedWithToolCall && (raw.includes("\n\nUser:") || raw.endsWith("\x03"))
-      callbacks?.onRawOutput?.(raw)
+      const endedWithUser = !endedWithToolCall && raw.includes("\n\nUser:")
+      // NOTE: onRawOutput is NOT called here. It's called on each
+      // non-continuation exit path below so continuation tokens merge
+      // into the same assistant block in the trace.
 
       // Runtime output format check — surface bad patterns immediately
       const firstLine = raw.split("\n")[0]
@@ -132,28 +149,103 @@ export class AgentLoop {
         console.warn(`[agent-loop] WARN: role/instruction echo detected: ${JSON.stringify(badPatternMatch[0].slice(0, 40))}`)
       }
 
-      // Empty stream guard: the model emitted no parseable tokens. The grammar
-      // and stop sequences should always admit at least one token of output,
-      // so an empty `raw` is a model failure (likely stale state, corrupted
-      // RNN context, or a stop sequence that fires before any token). Surface
-      // the warning so the trace tells us what happened — and so the eval
-      // never silently reports "assistant: <blank>" again.
+      // Empty stream guard: retry up to 3 times. The model may be in
+      // a transient state glitch. Retry with same prompt and grammar
+      // (NOT continuation mode) to give it another chance.
       if (raw.trim().length === 0) {
-        const msg = `[agent-loop] WARN: empty generation at depth ${depth} (stopReason=${genRes.stopReason})`
-        callbacks?.onText?.(msg)
-        console.warn(msg)
-        break
+        emptyRetryCount++
+        if (emptyRetryCount > 3) {
+          callbacks?.onRawOutput?.(raw)
+          const msg = `[agent-loop] WARN: empty generation at depth ${depth} after ${emptyRetryCount} retries (stopReason=${genRes.stopReason})`
+          callbacks?.onText?.(msg)
+          console.warn(msg)
+          break
+        }
+        console.warn(`[agent-loop] retrying empty generation (attempt ${emptyRetryCount}/${3}) at depth ${depth}`)
+        continue
+      }
+      emptyRetryCount = 0
+
+      // Accumulate across continuation iterations so the parser can
+      // find tool calls that span multiple generations (truncated by
+      // max_length and continued).
+      if (continuation) {
+        continuationAccum += raw
+      } else {
+        continuationAccum = raw
       }
 
-      const { text, toolCalls, errors } = adapterParseToolCalls(raw)
-      callbacks?.onText?.(text)
-      finalText += text
+      const { text, toolCalls, errors } = adapterParseToolCalls(continuationAccum)
 
       const allCalls = [...toolCalls, ...errors]
       if (allCalls.length === 0) {
-        if (endedWithUser || raw.includes(cfg.sep)) break
+        if (endedWithUser) {
+          // Think block without tool call — retry instead of silently
+          // accepting, since the model stopped while thinking.
+          const hasThinkBlock = raw.includes("<think>") && raw.includes("</think>")
+          if (hasThinkBlock && raw.trim().length > 0) {
+            thinkBlockRetryCount++
+            if (thinkBlockRetryCount > 3) {
+              callbacks?.onRawOutput?.(raw)
+              callbacks?.onText?.(text)
+              finalText += text
+              break
+            }
+            console.warn(`[agent-loop] think block without tool call (attempt ${thinkBlockRetryCount}/3) — retrying`)
+            fullPrompt = ""
+            continue
+          }
+          callbacks?.onRawOutput?.(raw)
+          callbacks?.onText?.(text)
+          finalText += text
+          break
+        }
+        if (genRes.stopReason === "length" && raw.trim().length > 0) {
+          continuationBailout++
+          if (continuationBailout > 5) {
+            callbacks?.onRawOutput?.(raw)
+            callbacks?.onText?.(text)
+            finalText += text
+            break
+          }
+          fullPrompt = ""
+          continuation = true
+          continue
+        }
+        if (raw.includes(cfg.sep)) {
+          callbacks?.onRawOutput?.(raw)
+          callbacks?.onText?.(text)
+          finalText += text
+          break
+        }
+        // Think block without tool call — model thought but didn't follow
+        // through. Retry with empty prompt (original grammar, NOT
+        // continuation mode) so the model can emit a call from its
+        // post-think RNN state.
+        const hasThinkBlock = raw.includes("<think>") && raw.includes("</think>")
+        if (hasThinkBlock && raw.trim().length > 0) {
+          thinkBlockRetryCount++
+          if (thinkBlockRetryCount > 3) {
+            callbacks?.onRawOutput?.(raw)
+            callbacks?.onText?.(text)
+            finalText += text
+            break
+          }
+          console.warn(`[agent-loop] think block without tool call (attempt ${thinkBlockRetryCount}/3) — retrying`)
+          fullPrompt = ""
+          continue
+        }
+        callbacks?.onRawOutput?.(raw)
+        callbacks?.onText?.(text)
+        finalText += text
         break
       }
+      callbacks?.onRawOutput?.(raw)
+      callbacks?.onText?.(text)
+      finalText += text
+      continuation = false
+      continuationBailout = 0
+      thinkBlockRetryCount = 0
 
       // Strip everything after the last </tool_call> to prevent hallucinated
       // \n\nUser: or other stop sequences from corrupting the next prompt
@@ -240,7 +332,7 @@ export class AgentLoop {
   cleanOutput(text: string): string {
     return text
       .replace(/^Assistant:\s*/i, "")
-      .replace(/\x03/g, "")
+      
       .trim()
   }
 

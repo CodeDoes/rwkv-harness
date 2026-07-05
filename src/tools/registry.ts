@@ -98,7 +98,7 @@ export const toolHandlers: Record<string, ToolHandler> = {
   find: (args) => findTool({ path: args.path as string, term: args.term as string }),
 }
 
-const EOT = "\x03"
+
 
 function paramGbnfRule(p: ToolParam): string {
   if (p.enum) return `(${p.enum.map((v) => `"\\"${v}\\""`).join(" | ")})`
@@ -176,8 +176,8 @@ export function toolsToGbnfZod(defs?: ToolDef[]): string {
 
 export function toolsToGbnfResponse(): string {
   return [
-    `root ::= text "\\n\\n" "${EOT}"`,
-    `text ::= [^${EOT}]*`,
+    `root ::= text "\\n\\n"`,
+    `text ::= [^<]*`,
   ].join("\n")
 }
 
