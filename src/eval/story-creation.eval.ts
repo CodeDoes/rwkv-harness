@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import * as fs from "fs"
+import { promises as fsp } from "fs"
 import * as path from "path"
 import * as os from "os"
 import { spawn } from "child_process"
@@ -26,10 +27,10 @@ eLog(`[eval] start pid=${process.pid} cwd=${process.cwd()}`)
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PROJECT_ROOT = path.resolve(__dirname, "../..")
 
-// Active model reference shared with signal handlers so an interrupt
-// (Ctrl+C) can forward a stop signal to the gateway before exiting.
+// Active model reference shared with signal handlers so Ctrl+C can
+// forward an interrupt to the in-flight generation without killing
+// the gateway (which is a persistent shared process).
 let activeModel: Engine | null = null
-let activeGatewayProc: import("child_process").ChildProcess | null = null
 
 const USER_INPUT = "Create a story about dragons with 3 first chapters and an up-to-date wiki."
 
@@ -305,31 +306,32 @@ async function runLive(baseDir: string, args: string[]): Promise<boolean> {
   console.error(`GPU: ${gpu}`)
   console.error(`Workspace: ${baseDir}`)
 
-  // Auto-start gateway if not running
+  // Auto-start gateway if not running. We `detach: true` + `unref()` so
+  // this child outlives the eval — subsequent `pnpm eval:live` reuses it
+  // via `tryConnectGateway()`. Teardown is the user's choice (`pnpm gateway:stop`).
   let gatewayProc: import("child_process").ChildProcess | null = null
   let model = await tryConnectGateway()
   if (!model) {
-    console.error("Starting gateway...")
+    console.error("Starting gateway (detached; will survive this eval)...")
+    const logFd = await fsp.open(path.join(projectRoot, ".gateway.log"), "a")
     gatewayProc = spawn("pnpm", ["gateway"], {
       cwd: projectRoot,
-      stdio: "pipe",
-      detached: false,
+      stdio: ["ignore", logFd.fd, logFd.fd],
+      detached: true,
       env: { ...process.env, NODE_ENV: "production" },
     })
-    gatewayProc.stdout?.pipe(process.stdout)
-    gatewayProc.stderr?.pipe(process.stderr)
+    gatewayProc.unref()
     // Wait for gateway health
     model = await tryConnectGateway(void 0, { waitMs: 5 * 60 * 1000 })
     if (!model) {
-      gatewayProc.kill()
+      if (gatewayProc.pid) {
+        try { process.kill(gatewayProc.pid, "SIGKILL") } catch {}
+      }
       throw new Error("Gateway failed to start within 5 minutes")
     }
   }
 
-  // Expose model + spawned gateway to signal handlers so SIGINT/SIGTERM can
-  // forward an interrupt to the gateway and tear down spawned processes.
   activeModel = model
-  activeGatewayProc = gatewayProc
 
   const originalCwd = process.cwd()
   process.chdir(baseDir)
@@ -410,12 +412,9 @@ async function runLive(baseDir: string, args: string[]): Promise<boolean> {
   console.error(`\nTrace: ${trace.path}`)
   process.chdir(originalCwd)
   await model.dispose()
-  if (gatewayProc) {
-    gatewayProc.kill()
-    console.error("Gateway stopped")
-  }
+  // Gateway was spawned detached — it survives this eval. Only clear the
+  // model reference so the signal handler doesn't hold a stale object.
   activeModel = null
-  activeGatewayProc = null
   return allPass
 }
 
@@ -436,12 +435,9 @@ async function main(): Promise<number> {
       console.error(`Live mode error: ${err instanceof Error ? err.message : String(err)}`)
       success = false
     } finally {
-      // Always clear active references after runLive completes (success or error)
-      // so an unexpected error doesn't leave the signal handler holding a stale
-      // model. Active flags are also cleared inside runLive() when it exits
-      // cleanly; this finally is the safety net.
+      // Clear the model reference so the signal handler doesn't hold a
+      // stale object after unexpected errors.
       activeModel = null
-      activeGatewayProc = null
       process.chdir(origCwd)
     }
     console.error(`\nFiles preserved: ${tmpDir}`)
@@ -465,29 +461,22 @@ async function sendInterrupt(sessionId = "envoy-dragons-live"): Promise<void> {
   }
 }
 
-function killActiveGateway(): void {
-  if (activeGatewayProc) {
-    activeGatewayProc.kill()
-    console.error("[signal] killed eval-spawned gateway")
-  }
-}
-
+// Gateway is a persistent process — only the user's explicit
+// `pnpm gateway:stop` should tear it down. Signal handlers here
+// just interrupt any in-flight generation, then exit.
 process.on("SIGINT", async () => {
   console.error("\nInterrupted")
   await sendInterrupt()
-  killActiveGateway()
   process.exit(1)
 })
 process.on("SIGTERM", async () => {
   console.error("\nTerminated")
   await sendInterrupt()
-  killActiveGateway()
   process.exit(1)
 })
 
 main().then((code) => process.exit(code)).catch(async (err) => {
   console.error("Eval error:", err)
   await sendInterrupt()
-  killActiveGateway()
   process.exit(1)
 })
