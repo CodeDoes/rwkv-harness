@@ -1,0 +1,18 @@
+[package]
+name = "inference_daemon"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "rwkv-inference-daemon"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { workspace = true }
+anyhow = { workspace = true }
+engine = { path = "../engine" }
+logging = { path = "../logging" }
+tracing = { workspace = true }

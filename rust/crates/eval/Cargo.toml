@@ -1,0 +1,19 @@
+[package]
+name = "eval"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "rwkv-eval"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { workspace = true }
+anyhow = { workspace = true }
+engine = { path = "../engine" }
+grammar = { path = "../grammar" }
+logging = { path = "../logging" }
+tracing = { workspace = true }

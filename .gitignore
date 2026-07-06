@@ -13,5 +13,13 @@ native/**/target/
 .gateway.pid
 .inference.log
 .inference.pid
+.inference_restart.log
+.inference_restart2.log
+.start.log
+.eval_run.log
+.eval_run2.log
 .preview.grammar
 .eval.log
+rust/target/
+rust/**/target/
+rust/**/Cargo.lock

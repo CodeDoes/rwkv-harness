@@ -1,0 +1,37 @@
+[workspace]
+members = [
+    "crates/grammar",
+    "crates/engine",
+    "crates/cache",
+    "crates/session",
+    "crates/logging",
+    "crates/agent",
+    "crates/server",
+    "crates/inference_daemon",
+    "crates/eval",
+    "crates/sandbox",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["RWKV Harness Team"]
+repository = "https://example.com/rwkv-harness"
+
+[workspace.dependencies]
+tokio = { version = "1", features = ["full"] }
+async-trait = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1"
+thiserror = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+axum = "0.7"
+tower = "0.4"
+tower-http = { version = "0.5", features = ["trace"] }
+futures = "0.3"
+schoolmarm = "0.1.1"
+regex = "1"

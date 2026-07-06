@@ -1,0 +1,28 @@
+[package]
+name = "server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "rwkv-server"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+engine = { path = "../engine" }
+grammar = { path = "../grammar" }
+agent = { path = "../agent" }
+session = { path = "../session" }
+cache = { path = "../cache" }
+logging = { path = "../logging" }
+futures = { workspace = true }
