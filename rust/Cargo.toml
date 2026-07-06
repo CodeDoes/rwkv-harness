@@ -10,6 +10,7 @@ members = [
     "crates/inference_daemon",
     "crates/eval",
     "crates/sandbox",
+    "crates/vectorstore",
 ]
 resolver = "2"
 

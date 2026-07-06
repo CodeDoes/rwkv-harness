@@ -11,6 +11,7 @@
 //! these handlers – the state wiring (`AppState`) stays the same.
 
 use std::sync::Arc;
+use std::path::Path;
 
 use axum::{
     extract::State,
@@ -26,6 +27,7 @@ use agent::Agent;
 use cache::{PromptQueue, StateTuneCache};
 use grammar::ToolDef;
 use session::SessionManager;
+use vectorstore;
 
 /// Shared state injected into all handlers.
 #[derive(Clone)]
@@ -66,12 +68,45 @@ pub struct GenerateResponse {
     pub chunks: Vec<Chunk>,
 }
 
+/// Minimal RAG endpoint backed by the `vectorstore` crate (file‑based).
+#[derive(Debug, serde::Deserialize)]
+pub struct RagBody {
+    pub query: String,
+    #[serde(default = "default_rag_k")]
+    pub k: usize,
+}
+
+fn default_rag_k() -> usize { 5 }
+
+#[derive(Debug, serde::Serialize)]
+pub struct RagHit {
+    pub id: String,
+    pub score: f32,
+    pub text: String,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct RagResp {
+    pub results: Vec<RagHit>,
+}
+
+async fn rag(
+    Json(body): Json<RagBody>,
+) -> Result<Json<RagResp>, StatusCode> {
+    let store = vectorstore::Store::load_or_default(Path::new("vectors.json"))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let hits = store.search(&body.query, body.k);
+    let items = hits.into_iter().map(|(e, s)| RagHit{ id:e.id, score:s, text:e.text }).collect();
+    Ok(Json(RagResp{ results: items }))
+}
+
 /// Build the Axum router.
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/rpc/health", get(health))
         .route("/rpc/sessions", get(list_sessions))
         .route("/rpc/generate", post(generate))
+        .route("/rpc/rag", post(rag))
         .with_state(state)
 }
 

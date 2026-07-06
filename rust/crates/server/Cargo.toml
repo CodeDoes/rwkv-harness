@@ -26,3 +26,4 @@ session = { path = "../session" }
 cache = { path = "../cache" }
 logging = { path = "../logging" }
 futures = { workspace = true }
+vectorstore = { path = "../vectorstore" }
