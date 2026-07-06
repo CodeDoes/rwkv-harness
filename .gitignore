@@ -24,3 +24,9 @@ rust/target/
 rust/**/target/
 rust/**/Cargo.lock
 .locks/
+.live_*.log
+.eval_run*.log
+.inference_run*.log
+.live_chapter_eval*.log
+.live_eval_*.log
+.live_grammar_debug*.log
