@@ -1,16 +1,18 @@
 #!/usr/bin/env node
 import * as fs from "fs"
-import { promises as fsp } from "fs"
 import * as path from "path"
 import * as os from "os"
-import { spawn } from "child_process"
 import { fileURLToPath } from "url"
 import { EvalController, type Check } from "./eval-controller.ts"
 import { loadAgent } from "../agents/agent-loader.ts"
 import { renderExamples, renderAssistantTurn } from "../agents/examples.ts"
 import type { ExampleEntry } from "../agents/example-template.ts"
 import type { ToolDef, Engine } from "../types.ts"
+
+import { NativeRwkvModel } from "../model/native-rwkv-model.ts"
 import { HttpModel } from "../model/http-model.ts"
+import { SessionHost } from "../session/session-host.ts"
+import { GatewayServer } from "../gateway/server.ts"
 import { TraceWriter } from "./trace-writer.ts"
 import { LogStream } from "../core/log-stream.ts"
 import { resolveWorkspace, workspaceModeFromEnv, type WorkspaceMode } from "../core/workspace.ts"
@@ -25,24 +27,55 @@ function eLog(msg: string): void {
 eLog(`[eval] start pid=${process.pid} cwd=${process.cwd()}`)
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const PROJECT_ROOT = path.resolve(__dirname, "../..")
 
 // Active model reference shared with signal handlers so Ctrl+C can
-// forward an interrupt to the in-flight generation without killing
-// the gateway (which is a persistent shared process).
+// interrupt in-flight generation before exit.
 let activeModel: Engine | null = null
 
 const USER_INPUT = "Create a story about dragons with 3 first chapters and an up-to-date wiki."
 
 // ── Oracle content ──
 
-const PLAN_CONTENT = `# The Dragon's Legacy\n\nA young blacksmith discovers a dying dragon and must choose between saving it and protecting his village.\n\n## Chapters\n1. The Discovery\n2. The Bond\n3. The Sacrifice\n\n## Wiki\n- Character: Lyra (dragon), Kael (blacksmith)\n- Location: Emberhold village, Dragon's Peak\n- Faction: The Ashen Council\n`
+const PLAN_SEGMENT = `# The Dragon's Legacy\n\nA young blacksmith discovers a dying dragon and must choose between saving it and protecting his village.\n\n## Chapters\n1. The Discovery\n2. The Bond\n3. The Sacrifice\n\n## Wiki\n- Character: Lyra (dragon), Kael (blacksmith)\n- Location: Emberhold village, Dragon's Peak\n- Faction: The Ashen Council\n`
+/** Long plan content that triggers max_length truncation in the mock */
+const PLAN_CONTENT = Array.from({ length: 8 }, () => PLAN_SEGMENT).join("\n\n")
 const CH1_CONTENT = `# Chapter 1: The Discovery\n\nThe forge fire hissed as Kael plunged the red-hot steel into the water. A shadow crossed the window. He looked up and saw nothing but dark trees swaying in the wind. Then he heard it: a low, rumbling moan that seemed to shake the very ground beneath his feet.\n\nHe grabbed his lantern and stepped outside. The sound grew louder, and with it came a faint orange glow from behind the ridge. Kael climbed the rocky path, his heart pounding. At the top, he froze.\n\nA massive creature lay crumpled in the ravine, its bronze scales cracked and oozing. One eye opened slowly, fixing him with a gaze that was both fierce and pleading. Kael whispered, \"You are real.\" The dragon let out a soft whimper. \"Help me,\" she breathed. \"Please.\"\n`
 const CH2_CONTENT = `# Chapter 2: The Bond\n\nKael brought water from the stream. The dragon drank, her breathing steadying. He sat beside her, watching the stars emerge. \"What is your name?\" he asked. The dragon turned her head. \"Lyra,\" she said. \"I am the last of my kind. The Ashen Council hunted us down one by one.\"\n\nKael built a fire. Lyra told him of the old world, when dragons ruled the skies and humans lived in awe beneath them. \"They fear what they do not understand,\" Kael said. Lyra nodded. \"And fear makes people cruel.\"\n\nIn the days that followed, Kael tended to Lyra's wounds. She grew stronger. He climbed onto her back, and she spread her wings for the first time in months. The wind rushed past them as they soared above the village. Kael shouted with joy.\n`
 const CH3_CONTENT = `# Chapter 3: The Sacrifice\n\nThe Ashen Council arrived at dawn. Three figures in gray cloaks stood at the village gate. \"We know you harbor a dragon,\" the leader said. \"Hand it over, or the village burns.\"\n\nKael stood before them. \"She is not a thing to hand over. She is my friend.\" The leader sneered. \"Then you will burn with her.\"\n\nLyra emerged from the ridge, her scales gleaming in the morning light. She spread her wings and roared. The council stumbled back. \"You wish to fight?\" Lyra said. \"I have no fight left in me. I offer myself. Let the boy go.\"\n\nThey took her away in iron chains. Kael watched until she disappeared over the horizon. That night, he found a single bronze scale lying on his doorstep. He held it tight and whispered, \"I will find you.\"\n`
 const WIKI_ERYNDOR = `# Lyra\n\n**Role:** Bronze dragon, last of her kind\n**Age:** 427 years\n**Appearance:** Bronze scales, golden eyes, wingspan of 30 feet\n**Personality:** Wise, weary, fiercely protective of those she trusts\n**Backstory:** Lyra watched her entire species hunted by the Ashen Council. She fled to the mountains near Emberhold, where her injuries finally caught up with her. Kael found her and nursed her back to health, forging an unlikely bond.\n`
 const WIKI_DRAGON_PEAK = `# Dragon's Peak\n\n**Location:** Mountain range east of Emberhold\n**Description:** The highest peak in the region, named for the dragons that once nested there. The summit is perpetually shrouded in mist, and the caves beneath hold ancient dragon-carved tunnels. The locals say that on quiet nights, you can still hear the echo of dragon songs.\n`
 const WIKI_EMERALD_CLAW = `# The Ashen Council\n\n**Type:** Anti-dragon faction\n**Leader:** Councillor Maren\n**Headquarters:** The Ivory Tower, capital city\n**Goal:** Eliminate all remaining dragons from the realm\n**Methods:** Use of ash-magic that suppresses dragon fire. Trackers with enchanted compasses that point toward dragon blood. Bounty hunters paid per scale delivered to the council vault.\n`
+
+// ── Embedded gateway helper ──
+
+/**
+ * Wrap any Engine behind an in-process GatewayServer + HttpModel so the
+ * eval exercises the full HTTP/oRPC pipeline even with a mock engine.
+ * Gateway listens on a random port to avoid conflicts.
+ */
+async function startEmbeddedGateway(
+  engine: Engine,
+  stateDir: string,
+  modelPath: string,
+): Promise<{ model: HttpModel; server: GatewayServer; cleanup: () => Promise<void> }> {
+  const host = new SessionHost(engine, stateDir)
+  await host.init()
+  const server = new GatewayServer(host, undefined, modelPath)
+  await server.start(0)
+  server.markReady()
+  const addr = server.getHttpServer().address()
+  const port = typeof addr === "string" ? parseInt(addr.split(":").pop()!, 10) : addr!.port
+  const model = new HttpModel(`http://127.0.0.1:${port}`)
+  return {
+    model,
+    server,
+    cleanup: async () => {
+      await model.dispose()
+      await server.stop()
+      await engine.dispose()
+    },
+  }
+}
 
 // ── Oracle mode ──
 
@@ -51,7 +84,7 @@ async function runOracle(baseDir: string): Promise<boolean> {
   const storyPath = "workspace/dragons"
   const jobTask = `${USER_INPUT} Write files to ${storyPath}`
 
-const trace = new TraceWriter("oracle").open({ mode: "oracle", baseDir })
+const trace = new TraceWriter("oracle", { tracesDir: path.resolve(__dirname, ".traces") }).open({ mode: "oracle", baseDir })
 
   function tc(name: string, args: Record<string, unknown>): ExampleEntry {
     return { type: "tool_call", content: JSON.stringify({ name, arguments: args }) }
@@ -72,7 +105,15 @@ const trace = new TraceWriter("oracle").open({ mode: "oracle", baseDir })
 
   const mockResponses = mockTurns.map(t => renderAssistantTurn(t))
 
-  const model = EvalController.createMockModel(mockResponses)
+  // Use a low truncation limit so the plan write (long content) hits
+  // max_length mid-tool-call, testing the continuation path.
+  const engine = EvalController.createMockModel(mockResponses, 1000)
+  const { model, cleanup: gwCleanup } = await startEmbeddedGateway(
+    engine,
+    path.join(baseDir, "_gateway"),
+    "mock",
+  )
+
   const envoy = await loadAgent("envoy")
   const storyteller = await loadAgent("storyteller")
 
@@ -119,6 +160,14 @@ const trace = new TraceWriter("oracle").open({ mode: "oracle", baseDir })
     if (mockResponses[i].includes("<tool_call>")) {
       stErrors.push(...EvalController.validateToolCallFormat(mockResponses[i], stToolDefs))
     }
+  }
+
+  // Per-block lenient grammar validation — each mock response must conform
+  // to the grammar-level contract (balanced tags, no role echoes, valid JSON).
+  const envoyBlockErr = EvalController.validateAssistantOutputLenient(mockResponses[0])
+  const stBlockErrs: string[] = []
+  for (let i = 1; i < mockResponses.length; i++) {
+    stBlockErrs.push(...EvalController.validateAssistantOutputLenient(mockResponses[i]))
   }
 
   const envoyGrammarErr = await EvalController.validateToolGrammar(envoy.toolDefs)
@@ -231,11 +280,14 @@ const trace = new TraceWriter("oracle").open({ mode: "oracle", baseDir })
     // Agent usage
     { name: "envoy spawned agent", pass: result.subToolCalls >= 1 },
     { name: "storyteller made at least 8 tool calls", pass: result.subToolCalls >= 8 },
-    { name: "all mock responses consumed", pass: model.callCount === mockResponses.length },
+    { name: "all mock responses consumed", pass: engine.callCount >= mockResponses.length },
+    { name: "max_length continuation exercised", pass: engine.callCount > mockResponses.length },
     { name: "envoy tool call format valid", pass: envoyToolErr.length === 0 },
     { name: "storyteller tool calls format valid", pass: stErrors.length === 0 },
     { name: "envoy grammar valid", pass: envoyGrammarErr === null },
     { name: "storyteller grammar valid", pass: stGrammarErr === null },
+    { name: "envoy block grammar valid (lenient)", pass: envoyBlockErr.length === 0 },
+    { name: "storyteller blocks grammar valid (lenient)", pass: stBlockErrs.length === 0 },
     { name: "envoy example format valid (GBNF)", pass: envoyExampleErr.length === 0 },
     { name: "storyteller example format valid (GBNF)", pass: stExampleErr.length === 0 },
     { name: "mock responses start with \\n\\t", pass: mockResponses.every((r, i) => { const ok = r.startsWith("\n\t"); if (!ok) console.error(`  mock response ${i} bad prefix: ${JSON.stringify(r.slice(0, 6))}`); return ok }) },
@@ -248,103 +300,37 @@ const trace = new TraceWriter("oracle").open({ mode: "oracle", baseDir })
   trace.close()
   console.error(`\nTrace: ${trace.path}`)
   process.chdir(originalCwd)
+  await gwCleanup()
   return allPass
 }
 
 // ── Live mode ──
-
-/**
- * Wait until the gateway's `/rpc/health` reports `status: "ok"`.
- * Returns the `HttpModel` to use, or `null` if the deadline expires.
- *
- * Connection errors (ECONNREFUSED, DNS failures) are treated as "not yet up"
- * rather than "dead" — keeps retrying until the deadline. HTTP errors (500,
- * etc.) are also treated as "still loading".
- */
-async function tryConnectGateway(port = 3030, opts: { waitMs?: number; pollMs?: number } = {}): Promise<Engine | null> {
-  const { waitMs = 5 * 60 * 1000, pollMs = 2000 } = opts
-  const url = `http://127.0.0.1:${port}/rpc/health`
-  const deadline = Date.now() + waitMs
-  let attempt = 0
-
-  for (;;) {
-    attempt++
-    const remaining = Math.max(0, deadline - Date.now())
-    if (remaining === 0) return null
-
-    try {
-      const r = await fetch(url, { signal: AbortSignal.timeout(3000) })
-      if (r.ok) {
-        const body = await r.json().catch(() => ({})) as { status?: string; stateSize?: number }
-        if (body.status === "ok") {
-          console.error(`Gateway ready on :${port} (stateSize=${body.stateSize ?? 0})`)
-          return new HttpModel(`http://127.0.0.1:${port}`)
-        }
-        if (attempt === 1 || (attempt % 5 === 0)) {
-          console.error(`Gateway on :${port} (status=${body.status ?? r.status}), retrying...`)
-        }
-      }
-    } catch {
-      if (attempt === 1 || (attempt % 5 === 0)) {
-        console.error(`Gateway not yet reachable on :${port}, retrying...`)
-      }
-    }
-
-    // Exponential backoff: 2s, 4s, 8s, 16s, then cap at 16s
-    const delay = Math.min(pollMs * Math.pow(2, attempt - 1), 16_000)
-    await new Promise((r) => setTimeout(r, Math.min(delay, remaining)))
-  }
-}
 
 async function runLive(baseDir: string, args: string[]): Promise<boolean> {
   console.error("── Live mode (envoy → storyteller) ──")
 
   const modelPath = EvalController.resolveModelPath(args)
   const gpu = EvalController.resolveGpu(args)
-  const projectRoot = path.resolve(import.meta.dirname, "../..")
-
   console.error(`GPU: ${gpu}`)
   console.error(`Workspace: ${baseDir}`)
 
-  // Auto-start gateway if not running. We `detach: true` + `unref()` so
-  // this child outlives the eval — subsequent `pnpm eval:live` reuses it
-  // via `tryConnectGateway()`. Teardown is the user's choice (`pnpm gateway:stop`).
-  let gatewayProc: import("child_process").ChildProcess | null = null
-  let model = await tryConnectGateway()
-  if (!model) {
-    console.error("Starting gateway (detached; will survive this eval)...")
-    const logFd = await fsp.open(path.join(projectRoot, ".gateway.log"), "a")
-    gatewayProc = spawn("pnpm", ["gateway"], {
-      cwd: projectRoot,
-      stdio: ["ignore", logFd.fd, logFd.fd],
-      detached: true,
-      env: { ...process.env, NODE_ENV: "production" },
-    })
-    gatewayProc.unref()
-    // Wait for gateway health
-    model = await tryConnectGateway(void 0, { waitMs: 5 * 60 * 1000 })
-    if (!model) {
-      if (gatewayProc.pid) {
-        try { process.kill(gatewayProc.pid, "SIGKILL") } catch {}
-      }
-      throw new Error("Gateway failed to start within 5 minutes")
-    }
-  }
-
+  // Embedded gateway: NativeRwkvModel behind GatewayServer + HttpModel.
+  // Same pipeline as oracle, just with the real model as the engine.
+  console.error("Loading native model...")
+  const stateDir = path.join(baseDir, "_gateway")
+  const engine = new NativeRwkvModel(modelPath, stateDir)
+  await engine.init(gpu)
+  const gw = await startEmbeddedGateway(engine, stateDir, modelPath)
+  const model = gw.model
   activeModel = model
 
   const originalCwd = process.cwd()
   process.chdir(baseDir)
 
-  // Fetch actual model name from gateway
-  let modelName = path.basename(modelPath)
-  try {
-    const info = await model.modelInfo?.()
-    if (info?.model) modelName = info.model
-  } catch {}
+  const modelName = path.basename(modelPath)
   console.error(`Model: ${modelName}`)
 
-  const trace = new TraceWriter("live").open({ mode: "live", model: modelName, gpu, workspace: baseDir })
+  const trace = new TraceWriter("live", { tracesDir: path.resolve(__dirname, ".traces") }).open({ mode: "live", model: modelName, gpu, workspace: baseDir })
 
   const envoy = await loadAgent("envoy")
   const storyteller = await loadAgent("storyteller")
@@ -411,9 +397,7 @@ async function runLive(baseDir: string, args: string[]): Promise<boolean> {
   trace.close()
   console.error(`\nTrace: ${trace.path}`)
   process.chdir(originalCwd)
-  await model.dispose()
-  // Gateway was spawned detached — it survives this eval. Only clear the
-  // model reference so the signal handler doesn't hold a stale object.
+  await gw.cleanup()
   activeModel = null
   return allPass
 }
@@ -461,9 +445,9 @@ async function sendInterrupt(sessionId = "envoy-dragons-live"): Promise<void> {
   }
 }
 
-// Gateway is a persistent process — only the user's explicit
-// `pnpm gateway:stop` should tear it down. Signal handlers here
-// just interrupt any in-flight generation, then exit.
+// Signal handlers just interrupt any in-flight generation, then exit.
+// Embedded gateway cleanup happens in runLive() — these handlers are
+// for Ctrl-C during generation.
 process.on("SIGINT", async () => {
   console.error("\nInterrupted")
   await sendInterrupt()

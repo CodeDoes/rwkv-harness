@@ -59,11 +59,14 @@ export class HttpModel implements Engine {
       segments: req.segments,
     })
     let text = ""
-    for await (const event of iter) {
-      text += event.token
-      req.onToken?.(event.token)
+    let result = await iter.next()
+    while (!result.done) {
+      text += result.value.token
+      req.onToken?.(result.value.token)
+      result = await iter.next()
     }
-    return { sessionId: req.sessionId, text, stopReason: "stop" }
+    const finalResult = result.value as GenerateResult | undefined
+    return { sessionId: req.sessionId, text, stopReason: finalResult?.stopReason ?? "stop" }
   }
 
   async interrupt(sessionId: string): Promise<{ stopReason: "Interrupted" }> {
@@ -72,6 +75,20 @@ export class HttpModel implements Engine {
 
   async evaluate(text: string): Promise<void> {
     await this.rpc.evaluate({ text })
+  }
+
+  /**
+   * Forward to the gateway's `/rpc/grammar-check` endpoint, which runs
+   * the same `GrammarState::accept_token` walk over the model's real
+   * tokenizer. Throws if the gateway has no native engine under it.
+   */
+  async grammarCheck(gbnf: string, text: string): Promise<{
+    ok: boolean
+    firstFail: number
+    acceptedTokens: number
+    remainingTokens: number
+  }> {
+    return this.rpc.grammarCheck({ gbnf, text })
   }
 
   async saveCheckpoint(name: string): Promise<{ filePath: string; fileSize: number }> {

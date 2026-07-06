@@ -180,7 +180,7 @@ export class EvalController {
           envoyRawCaptured = true
         }
       },
-      onText: (t: string) => process.stdout.write(t),
+      onText: () => {},
       onToken: (t: string) => {
         if (envoyFirstToken) {
           this.traceWriter.beginLine("assistant:")
@@ -275,14 +275,43 @@ export class EvalController {
     return this._validateAssistantOutputImpl(raw, { strict: false })
   }
 
+  /**
+   * Grammar-grounded validation. Walks `raw` through the same
+   * `GrammarState::accept_token` path the inference engine uses during
+   * live generation — via `engine.grammarCheck(gbnf, text)`. This is
+   * what `live eval` should run so an example that's "valid by regex"
+   * but off-the-grammar gets caught. Returns an empty list when the
+   * run reaches an accepting state.
+   *
+   * Falls back to `[]` when the engine has no `grammarCheck` (e.g. the
+   * oracle `MockModel`) — caller should then run
+   * `validateAssistantOutputLenient` separately.
+   */
+  static async validateAssistantOutputGrammar(
+    raw: string,
+    gbnf: string,
+    engine: Engine,
+  ): Promise<string[]> {
+    if (!raw || raw.trim().length === 0) return []
+    try {
+      const result = await engine.grammarCheck(gbnf, raw)
+      if (result.ok) return []
+      const idx = result.firstFail
+      const snippet = idx >= 0 && idx < raw.length
+        ? `${JSON.stringify(raw.slice(Math.max(0, idx - 12), idx + 12))}`
+        : "(end of text)"
+      return [
+        `grammar-walk rejected at codepoint ${idx}: context ${snippet} ` +
+          `(accepted ${result.acceptedTokens} codepoints, remaining ${result.remainingTokens})`,
+      ]
+    } catch (e) {
+      return []
+    }
+  }
+
   private static _validateAssistantOutputImpl(raw: string, opts: { strict: boolean }): string[] {
     const errors: string[] = []
     if (!raw || raw.trim().length === 0) return errors
-
-    // First character: tab-indent.
-    if (raw.length > 0 && !raw.startsWith("\t")) {
-      errors.push(`output must start with \\t (tab), got: ${JSON.stringify(raw.slice(0, 20))}`)
-    }
 
     // Role-marker echo guard (always on — both modes).
     const lines = raw.split("\n")
@@ -301,7 +330,7 @@ export class EvalController {
         const trimmed = line.trim()
         if (trimmed.length === 0) continue
         if (!line.startsWith("\t")) {
-          if (trimmed.startsWith("</") || trimmed === "\x00") continue
+          if (trimmed.startsWith("</")) continue
           const prevLine = i > 0 ? lines[i - 1] : ""
           if (prevLine.startsWith("\t") && prevLine.endsWith(" ")) continue
           errors.push(`line ${i + 1} missing leading \\t: ${JSON.stringify(trimmed.slice(0, 40))}`)
@@ -448,8 +477,8 @@ export class EvalController {
     return allPass
   }
 
-  static createMockModel(responses: string[]): MockModel {
-    return new MockModel(responses)
+  static createMockModel(responses: string[], truncationCharLimit?: number): MockModel {
+    return new MockModel(responses, truncationCharLimit)
   }
 
   static resolveModelPath(args: string[]): string {

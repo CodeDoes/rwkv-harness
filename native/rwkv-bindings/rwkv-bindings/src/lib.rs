@@ -3,7 +3,7 @@ use napi::threadsafe_function::*;
 use napi_derive::napi;
 use half::f16;
 
-use schoolmarm::{Grammar, GrammarState};
+use schoolmarm::{parse::decode_utf8_string, Grammar, GrammarState};
 
 use web_rwkv::{
     context::{ContextBuilder, InstanceExt},
@@ -272,6 +272,25 @@ impl RWSession {
     #[napi]
     pub fn clear_grammar(&mut self) {
         self.grammar = None;
+    }
+
+    /// Tokenizer-free grammar walk. Runs `GrammarState::accept_token`
+    /// char-by-char over `text`, then `is_valid()` to decide whether
+    /// the run terminates at a valid (accepting + non-stuck) state.
+    /// Returns the codepoint index of the first char that fails to
+    /// advance the state, or `-1` on full acceptance.
+    ///
+    /// This matches the per-token accept path used during inference:
+    /// the grammar is identical, only the chunking granularity differs.
+    /// The result is what `GrammarState::is_valid()` reports at each
+    /// step regardless of how the text is chunked.
+    #[napi]
+    pub fn grammar_check(
+        &self,
+        grammar_str: String,
+        text: String,
+    ) -> Result<GrammarCheckResult> {
+        grammar_check_impl(&grammar_str, &text)
     }
 
     #[napi]
@@ -689,3 +708,68 @@ impl RWSession {
         Ok(())
     }
 }
+
+/// Result of `grammar_check`.
+/// - `ok`: true iff the entire character sequence terminates in an
+///    accepting state AND `GrammarState::is_valid()` returns true.
+/// - `firstFail`: codepoint index of the first character that failed
+///    to advance the state. `-1` means every character was accepted;
+///    `acceptedChars` (== text length) means the run finished but never
+///    reached an accepting state (e.g. missing closing tags).
+/// - `acceptedChars`: count of characters successfully consumed.
+/// - `remaining`: count of characters after `firstFail`.
+#[napi]
+pub struct GrammarCheckResult {
+    pub ok: bool,
+    pub first_fail: i32,
+    #[napi(js_name = "acceptedTokens")]
+    pub accepted_chars: i32,
+    #[napi(js_name = "remainingTokens")]
+    pub remaining: i32,
+}
+
+/// Char-level grammar walk shared by the `grammar_check` method and
+/// the standalone `grammar_check_text` function. Treating each UTF-8
+/// codepoint as a single token is exactly equivalent to the per-token
+/// accept path used during inference (schoolmarm's `accept_token`
+/// always walks codepoints internally); the granularity only changes
+/// how aggressively we abort early.
+fn grammar_check_impl(gbnf: &str, text: &str) -> Result<GrammarCheckResult> {
+    let codepoints = crate::decode_utf8_string(text);
+    // `decode_utf8_string` appends a terminating 0 codepoint; drop it.
+    let chars: &[u32] = if codepoints.last() == Some(&0) {
+        &codepoints[..codepoints.len() - 1]
+    } else {
+        &codepoints[..]
+    };
+
+    let grammar = Grammar::new(gbnf)
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Grammar error: {}", e)))?;
+    let mut state = GrammarState::new(grammar)
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Grammar state error: {}", e)))?;
+
+    for (i, &cp) in chars.iter().enumerate() {
+        // One codepoint at a time; encode back to a tiny string so
+        // schoolmarm can walk it via the same path as the per-token
+        // accept done inside `infer`.
+        let buf = char::from_u32(cp).map(|c| c.to_string()).unwrap_or_default();
+        if state.accept_token(&buf).is_err() {
+            return Ok(GrammarCheckResult {
+                ok: false,
+                first_fail: i as i32,
+                accepted_chars: i as i32,
+                remaining: (chars.len() - i) as i32,
+            });
+        }
+    }
+    let ok = state.is_valid();
+    let first_fail = if ok { -1 } else { chars.len() as i32 };
+    Ok(GrammarCheckResult {
+        ok,
+        first_fail,
+        accepted_chars: chars.len() as i32,
+        remaining: 0,
+    })
+}
+
+

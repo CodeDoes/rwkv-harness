@@ -157,7 +157,15 @@ export function toolsToGbnf(defs?: ToolDef[]): string {
 }
 
 export function toolsToGbnfWithThink(defs?: ToolDef[]): string {
-  return gbnfRoot(defs ?? toolDefs, `root ::= ws? (think-block | text | call ws?)+`)
+  return gbnfRoot(
+    defs ?? toolDefs,
+    // After any number of think blocks, require at least one call.
+    // The model may also emit text before/after calls, but every valid
+    // response shape must contain at least one tool_call. This prevents
+    // the failure mode where the model spends the entire max_tokens
+    // budget on a think block and exits before taking action.
+    `root ::= ws? (think-block)* (call ws? | text call ws? | call text ws?)+ (text ws?)*`,
+  )
 }
 
 export function toolsToGbnfText(defs?: ToolDef[]): string {

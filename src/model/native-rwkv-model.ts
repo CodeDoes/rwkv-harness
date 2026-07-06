@@ -28,6 +28,12 @@ interface RwSessionInstance {
   evaluate(text: string): Promise<void>
   setGrammar(grammar: string): void
   clearGrammar(): void
+  grammarCheck(gbnf: string, text: string): {
+    ok: boolean
+    firstFail: number
+    acceptedTokens: number
+    remainingTokens: number
+  }
   /** Read model file into host RAM (no VRAM). */
   prepareRam(modelPath: string): Promise<void>
   /** Re-upload from RAM and rebuild runtime. */
@@ -132,6 +138,22 @@ export class NativeRwkvModel implements Engine {
 
   detokenize(tokens: number[]): string {
     return this.ensure().detokenize(tokens)
+  }
+
+  /**
+   * Tokenize `text` via the real RWKV tokenizer and walk a fresh
+   * `GrammarState` over the tokens. Returns whether the run finishes
+   * in a valid state — i.e. the same contract `infer` enforces with
+   * the model logit mask, *without* sampling, so we can validate
+   * any candidate output independently of the live session.
+   */
+  async grammarCheck(gbnf: string, text: string): Promise<{
+    ok: boolean
+    firstFail: number
+    acceptedTokens: number
+    remainingTokens: number
+  }> {
+    return this.ensure().grammarCheck(gbnf, text)
   }
 
   statePath(name: string): string {

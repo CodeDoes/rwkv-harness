@@ -16,8 +16,17 @@
  *
  * Strict in addition requires every prose line to be `\t`-prefixed
  * (no flush-left free text).
+ *
+ * The grammar-walk path uses the napi binding's `grammar_check`
+ * (real schoolmarm char-by-char accept path). It's invoked through
+ * `validateAssistantOutputGrammar` so we exercise the same route the
+ * live inference engine uses.
  */
+import { createRequire } from "node:module"
 import { EvalController } from "../eval/eval-controller.ts"
+import { toolsToGbnfWithThink } from "../tools/registry.ts"
+
+const _require = createRequire(import.meta.url)
 
 let pass = 0
 let fail = 0
@@ -31,7 +40,7 @@ function check(name: string, cond: boolean, detail = "") {
 const validThinkText = '\t<think>\n\tGood\n\t</think>\n\tI agree.'
 const validToolCall = '\t<tool_call>\n\t{"name":"read","arguments":{"path":"test.md"}}\n\t</tool_call>'
 
-function main() {
+async function main() {
   console.log("\n── strict accepts valid layouts ──")
   check("strict accepts think+text", EvalController.validateAssistantOutput(validThinkText).length === 0)
   check("strict accepts tool_call", EvalController.validateAssistantOutput(validToolCall).length === 0)
@@ -102,6 +111,35 @@ function main() {
     ).length > 0,
   )
 
+  // ── grammar-walk path: real schoolmarm via napi binding ──
+  const binding = _require("/home/kit/dev/rwkv-harness/native/rwkv-bindings/rwkv-bindings.linux-x64-gnu.node") as {
+    RwSession: new () => { grammarCheck: (gbnf: string, text: string) => { ok: boolean; firstFail: number; acceptedTokens: number; remainingTokens: number } }
+  }
+  const session = new binding.RwSession()
+  const toolDefs = [
+    { name: "read", description: "Read", parameters: [{ name: "path", type: "string", description: "Path", required: true }] },
+    { name: "ls", description: "List", parameters: [{ name: "dir", type: "string", description: "Dir", required: true }] },
+  ]
+  const gbnf = toolsToGbnfWithThink(toolDefs)
+  const grammarEngine = { grammarCheck: (g: string, t: string) => Promise.resolve(session.grammarCheck(g, t)) }
+  const grammarEngineTyped = grammarEngine as unknown as { grammarCheck: (g: string, t: string) => Promise<{ ok: boolean; firstFail: number; acceptedTokens: number; remainingTokens: number }> }
+
+  console.log("\n── grammar-walk (real schoolmarm) ──")
+  const thinking = "\t<think>\n\tOK\n\t</think>\n\t<tool_call>\n\t{\"name\":\"ls\",\"arguments\":{\"dir\":\"plans\"}}\n\t</tool_call>"
+  const toolCall = "\t<tool_call>\n\t{\"name\":\"ls\",\"arguments\":{\"dir\":\"plans\"}}\n\t</tool_call>"
+  const brokenCall = "\t<tool_call>\n\t{not json}\n\t</tool_call>"
+
+  await runGrammarWalk()
+
+  async function runGrammarWalk() {
+    const okThink    = await EvalController.validateAssistantOutputGrammar(thinking, gbnf, grammarEngineTyped)
+    const okCall     = await EvalController.validateAssistantOutputGrammar(toolCall, gbnf, grammarEngineTyped)
+    const brokenRes  = await EvalController.validateAssistantOutputGrammar(brokenCall, gbnf, grammarEngineTyped)
+    check("grammar-walk accepts think+tool_call", okThink.length === 0)
+    check("grammar-walk accepts valid tool_call", okCall.length === 0)
+    check("grammar-walk rejects broken tool_call", brokenRes.length > 0)
+  }
+
   console.log(`\n${pass}/${pass + fail} PASS`)
   if (fail > 0) {
     console.log("\nFailures:")
@@ -111,4 +149,7 @@ function main() {
   process.exit(0)
 }
 
-main()
+main().catch((e) => {
+  console.error(e)
+  process.exit(1)
+})

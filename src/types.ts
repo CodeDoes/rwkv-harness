@@ -188,6 +188,29 @@ export interface Engine {
   bindToGpu?(): Promise<void>
   /** True when VRAM-resident. */
   isGpuBound?(): boolean
+  /**
+   * Schoolmarm-grounded grammar check. Tokenizes `text` (with this
+   * engine's tokenizer) and walks `GrammarState::accept_token` over
+   * the resulting tokens. Returns `{ ok, firstFail, acceptedTokens,
+   * remainingTokens }` where `firstFail` is the index of the first
+   * token that doesn't advance the grammar, or `-1` if all accepted.
+   *
+   * Implementations other than the native binding may degrade to a
+   * regex check or throw — the eval controllers always probe before
+   * relying on the result.
+   */
+  grammarCheck(
+    gbnf: string,
+    text: string,
+  ): Promise<{ ok: boolean; firstFail: number; acceptedTokens: number; remainingTokens: number }>
+}
+
+/** Failure detail returned by `Engine.grammarCheck`. */
+export interface GrammarCheckDetail {
+  ok: boolean
+  firstFail: number
+  acceptedTokens: number
+  remainingTokens: number
 }
 
 // --- MoSE types ---

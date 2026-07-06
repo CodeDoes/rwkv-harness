@@ -97,6 +97,19 @@ export const contract = oc.router({
     .input(TextBody)
     .output(z.void()),
 
+  grammarCheck: oc
+    .route({ method: "POST", path: "/grammar-check" })
+    .input(z.object({
+      gbnf: z.string(),
+      text: z.string(),
+    }))
+    .output(z.object({
+      ok: z.boolean(),
+      firstFail: z.number(),
+      acceptedTokens: z.number(),
+      remainingTokens: z.number(),
+    })),
+
   saveCheckpoint: oc
     .route({ method: "POST", path: "/save-checkpoint" })
     .input(SlotName)

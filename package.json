@@ -30,6 +30,8 @@
     "bench:placement": "bash scripts/bench-placement.sh",
     "test:trace": "tsx src/eval/trace-writer.test.ts",
     "test:agent": "tsx src/agents/agent.test.ts",
+    "test:loop-edge": "tsx src/eval/loop-edge.eval.ts",
+    "test:max-token": "tsx src/eval/max-token.eval.ts",
     "test:format-strictness": "tsx src/eval/format-strictness.test.ts",
     "test:frontmatter": "tsx src/agents/storyteller/frontmatter.test.ts",
     "test:vram-residency": "tsx src/model/vram-residency.test.ts",

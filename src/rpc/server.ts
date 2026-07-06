@@ -58,7 +58,6 @@ function createRouter(model: Engine, host: SessionHost, modelPath: string, model
         signal: ac.signal,
         onToken: (token) => {
           queue.push(token)
-          process.stderr.write(token)
           waiter.resolve?.()
           waiter.resolve = null
         },
@@ -106,6 +105,10 @@ function createRouter(model: Engine, host: SessionHost, modelPath: string, model
 
     evaluate: base.evaluate.handler(async ({ input }) => {
       await model.evaluate(input.text)
+    }),
+
+    grammarCheck: base.grammarCheck.handler(async ({ input }) => {
+      return model.grammarCheck(input.gbnf, input.text)
     }),
 
     saveCheckpoint: base.saveCheckpoint.handler(async ({ input }) => {

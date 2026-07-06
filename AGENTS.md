@@ -22,7 +22,7 @@ Native napi-rs Rust binding to web-rwkv 0.10. ESM (`"type": "module"`), TypeScri
 | `eval` | Oracle mode (MockEngine, no model) — 40 checks |
 | `eval:live` | Live model eval — 20 checks |
 | `eval:cases` | Targeted eval — 6 scenarios |
-| `test:trace` / `test:agent` / `test:format-strictness` / `test:frontmatter` / `test:vram-residency` | Per-subsystem tests |
+| `test:trace` / `test:agent` / `test:loop-edge` / `test:max-token` / `test:format-strictness` / `test:frontmatter` / `test:vram-residency` | Per-subsystem tests |
 | `test:core` | `test:state-tune && test:log-stream && test:workspace` |
 | `test:grammar` | `test:grammar:valid && test:grammar:invalid && test:grammar:gen` |
 | `build:native` | `cargo build --release` + copy `.so` → `.node` |
