@@ -11,6 +11,7 @@ import {
 } from "../types.ts"
 import { MoSEEngine, LoRAManager } from "./mose.ts"
 import { StateTuneCache } from "../core/state-tune-cache.ts"
+import { acquireModelLock, releaseModelLock } from "../core/model-lock.ts"
 
 const GENERATE_TIMEOUT = 120_000
 
@@ -92,10 +93,18 @@ export class NativeRwkvModel implements Engine {
   }
 
   async init(gpu?: string, loraPaths?: unknown): Promise<void> {
-    const Ctor = loadBinding()
-    this.binding = new Ctor()
-    if (!this.binding) throw new Error("Failed to create native session")
-    await this.binding.init(this.modelPath, undefined, 32)
+    // Ensure no other process is already holding the model.
+    await acquireModelLock()
+    try {
+      const Ctor = loadBinding()
+      this.binding = new Ctor()
+      if (!this.binding) throw new Error("Failed to create native session")
+      await this.binding.init(this.modelPath, undefined, 32)
+    } catch (err) {
+      // Release the lock if something blew up while loading.
+      await releaseModelLock().catch(() => {})
+      throw err
+    }
   }
 
   /**
@@ -346,5 +355,7 @@ export class NativeRwkvModel implements Engine {
   async dispose(): Promise<void> {
     this.binding = null
     this.live.clear()
+    // Drop the singleton lock if we held it.
+    await releaseModelLock().catch(() => {})
   }
 }
