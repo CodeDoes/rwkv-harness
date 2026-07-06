@@ -34,6 +34,7 @@
     "test:max-token": "tsx src/eval/max-token.eval.ts",
     "test:format-strictness": "tsx src/eval/format-strictness.test.ts",
     "test:frontmatter": "tsx src/agents/storyteller/frontmatter.test.ts",
+    "test:chapter": "tsx src/eval/chapter-eval.ts",
     "test:vram-residency": "tsx src/model/vram-residency.test.ts",
     "test:state-tune": "tsx src/core/state-tune-cache.test.ts",
     "test:log-stream": "tsx src/core/log-stream.test.ts",
