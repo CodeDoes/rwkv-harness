@@ -8,6 +8,7 @@ import findTool from "./find.ts"
 import mkdirTool from "./mkdir.ts"
 import lsTool from "./ls.ts"
 import grepTool from "./grep.ts"
+import bashTool from "./bash.ts"
 
 const sharedDefs = {
   read: { schema: z.object({ path: z.string().describe("File path") }) },
@@ -17,6 +18,7 @@ const sharedDefs = {
   mkdir: { schema: z.object({ path: z.string().describe("Directory path") }) },
   grep: { schema: z.object({ path: z.string().describe("Directory to search"), term: z.string().describe("Text to search for") }) },
   find: { schema: z.object({ path: z.string().describe("Directory to search"), term: z.string().describe("Filename substring") }) },
+  bash: { schema: z.object({ command: z.string().describe("Shell command (non‑interactive)") }) },
 }
 
 export const toolSchemas: Record<string, z.ZodObject<z.ZodRawShape>> = Object.fromEntries(
@@ -86,6 +88,15 @@ export const toolDefs: ToolDef[] = [
     ],
     schema: sharedDefs.find.schema,
   },
+  {
+    name: "bash",
+    description:
+      "Run a shell command (non‑interactive) and receive stdout, stderr and the exit status. Useful for `pnpm typecheck`, `node -e`, etc.",
+    parameters: [
+      { name: "command", type: "string", description: "Shell command to execute", required: true },
+    ],
+    schema: sharedDefs.bash.schema,
+  },
 ]
 
 export const toolHandlers: Record<string, ToolHandler> = {
@@ -96,6 +107,7 @@ export const toolHandlers: Record<string, ToolHandler> = {
   mkdir: (args) => mkdirTool({ path: args.path as string }),
   grep: (args) => grepTool({ path: args.path as string, term: args.term as string }),
   find: (args) => findTool({ path: args.path as string, term: args.term as string }),
+  bash: (args) => bashTool({ command: args.command as string }),
 }
 
 

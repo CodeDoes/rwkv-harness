@@ -58,6 +58,9 @@ export class AgentLoop {
   sessionId: string
   private initPromise: Promise<void>
   private lastCallSignatures: string[] = []
+  /** Paths that have been `read` in the lifetime of this loop.
+   *  Used to enforce the little‑coder‑style “read‑before‑edit” rule. */
+  private readonly readPaths = new Set<string>()
   private template: ReturnType<typeof getTemplate>
 
   constructor(model: Engine, session: Session, maxDepth = 5, config?: AgentLoopConfig) {
@@ -263,7 +266,25 @@ export class AgentLoop {
           continue
         }
 
+        // ── little‑coder style guard: a file must be `read` before it can
+        //    be written to or edited.  The agent is told exactly which file
+        //    is missing, so it can issue a `read` first.  Remembers all reads
+        //    done so far in this `run()` lifecycle.
+        if ((call.name === "write" || call.name === "edit") &&
+            typeof call.args.path === "string" &&
+            !this.readPaths.has(call.args.path)) {
+          const path = call.args.path
+          const msg = `You must call \`read\` on \`${path}\` before you can ${call.name === "write" ? "write to" : "edit"} it.`
+          const errorResult: ToolResult = { name: call.name, success: false, data: null, error: msg }
+          this.config.onToolResult?.(errorResult)
+          resultsBlock += renderToolResponseBlock(errorResult) + "\n"
+          continue
+        }
+
         const result = await this.execTool(call)
+        if (call.name === "read" && typeof call.args.path === "string") {
+          this.readPaths.add(call.args.path)
+        }
         this.config.onToolResult?.(result)
         resultsBlock += renderToolResponseBlock(result) + "\n"
       }

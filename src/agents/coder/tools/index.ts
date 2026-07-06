@@ -6,6 +6,7 @@ import lsTool from "../../../tools/ls.ts"
 import mkdirTool from "../../../tools/mkdir.ts"
 import grepTool from "../../../tools/grep.ts"
 import findTool from "../../../tools/find.ts"
+import bashTool from "../../../tools/bash.ts"
 
 export const toolDefs: ToolDef[] = [
   {
@@ -62,6 +63,14 @@ export const toolDefs: ToolDef[] = [
       { name: "term", type: "string", description: "Filename substring to match", required: true },
     ],
   },
+  {
+    name: "bash",
+    description:
+      "Run a shell command (non‑interactive). Useful for type checks, linters, formatting, etc. Output is truncated to ~8 kB.",
+    parameters: [
+      { name: "command", type: "string", description: "Shell command", required: true },
+    ],
+  },
 ]
 
 export const toolHandlers: Record<string, ToolHandler> = {
@@ -72,6 +81,7 @@ export const toolHandlers: Record<string, ToolHandler> = {
   mkdir: (args) => mkdirTool({ path: args.path as string }),
   grep: (args) => grepTool({ path: args.path as string, term: args.term as string }),
   find: (args) => findTool({ path: args.path as string, term: args.term as string }),
+  bash: (args) => bashTool({ command: args.command as string }),
 }
 
 export function toolsToXml(): string {
