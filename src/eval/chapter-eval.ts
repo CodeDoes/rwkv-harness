@@ -31,6 +31,16 @@ import { AgentLoop } from "../agents/loop.ts"
 import { Session } from "../session/session.ts"
 import { parseToolCalls } from "../model/adapter.ts"
 
+// ------------------------------------------------------------------
+// Live‑mode toggle:  `pnpm test:chapter --live` will talk to a real
+// gateway instead of using the mock model.  The URL can be overridden
+// with the `LIVE_URL` environment variable.
+// ------------------------------------------------------------------
+import { HttpModel } from "../model/http-model.ts"
+import type { Engine } from "../types.ts"
+const USE_LIVE = process.argv.includes("--live")
+const LIVE_URL = process.env.LIVE_URL ?? "http://127.0.0.1:3130"
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ORACLE_FILE = path.join(__dirname, "oracle", "chapter1.md")
 
@@ -74,23 +84,26 @@ async function runChapterEval() {
     },
   }
 
-  // ---- 3️⃣  Spin up a mock model that emits a single write call. ----
-  const oracleContent = readFileSync(ORACLE_FILE, "utf8").trim()
-  const mockToolCall =
-    `\n<tool_call>\n{"name":"write","args":{"path":"chapter1.md","content":"` +
-    oracleContent.replace(/"/g, '\\"') +
-    `"}}\n</tool_call>\n`
-
-  // First response – a tool call. The rest are intentionally empty so the
-  // agent‑loop's “empty stream” guard can run out and terminate cleanly.
-  const emptyResponses = new Array(10).fill("")
-  const model = new MockModel([mockToolCall, ...emptyResponses])
-
-  // 👉  Debug – confirm the parser recognises our mock tool call.
-  console.log("\nParser self-check:")
-  console.log(parseToolCalls(mockToolCall))
-
-  await model.init()
+  // ---- 3️⃣  Choose engine: MockModel (default) or live HTTP model. ----
+  let model: Engine
+  if (USE_LIVE) {
+    console.log(`\n▶︎ live model mode → connecting to ${LIVE_URL}`)
+    const live = new HttpModel(LIVE_URL)
+    await live.init()
+    model = live
+  } else {
+    const oracleContent = readFileSync(ORACLE_FILE, "utf8").trim()
+    const mockToolCall =
+      `\n<tool_call>\n{"name":"write","args":{"path":"chapter1.md","content":"` +
+      oracleContent.replace(/"/g, '\\"') +
+      `"}}\n</tool_call>\n`
+    const emptyResponses = new Array(10).fill("")
+    const mock = new MockModel([mockToolCall, ...emptyResponses])
+    console.log("\nParser self-check:")
+    console.log(parseToolCalls(mockToolCall))
+    await mock.init()
+    model = mock
+  }
 
   // ---- 4️⃣  Build an AgentLoop and run the prompt. ----
   const session = new Session({
@@ -103,11 +116,21 @@ async function runChapterEval() {
       "You are a writing assistant. Use the `write` tool to create exactly one chapter file called `chapter1.md`. Do nothing else.",
     toolDefs: defaultToolDefs,
     toolHandlers: handlers,
-    examples: "",
+    // ‑‑ note: do **not** override examples here; the AgentLoop will
+    // fall back to its rich default examples which are essential for the
+    // model to learn how to format a tool call.  Without them the model
+    // often produces free‑form prose instead of a proper `<tool_call>`.
     templateName: "default",
   })
 
-  const finalText = await loop.run("Write a chapter about a dragon.")
+  const finalText = await loop.run(
+    "Write a chapter about a dragon.",
+    undefined,
+    // Give the model plenty of tokens – a single tool-call JSON can easily
+    // exceed the default ``256`` token budget, especially when the content
+    // is a full chapter.  4000 is comfortably above what we observed.
+    { maxTokens: 4000, temperature: 0.5 },
+  )
   console.log("   finalText length:", finalText?.length)
   console.log("   workspace contents:", await fsp.readdir(baseDir).catch(() => []))
 
