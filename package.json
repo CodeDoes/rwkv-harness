@@ -36,6 +36,7 @@
     "test:frontmatter": "tsx src/agents/storyteller/frontmatter.test.ts",
     "test:chapter": "tsx src/eval/chapter-eval.ts",
     "test:storyteller-context": "tsx src/eval/storyteller-context.eval.ts",
+    "test:storyteller-context-full": "tsx src/eval/storyteller-context-full.eval.ts",
     "test:vram-residency": "tsx src/model/vram-residency.test.ts",
     "test:state-tune": "tsx src/core/state-tune-cache.test.ts",
     "test:log-stream": "tsx src/core/log-stream.test.ts",
