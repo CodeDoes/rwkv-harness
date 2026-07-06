@@ -7,7 +7,7 @@ import { EvalController, type Check } from "./eval-controller.ts"
 import { loadAgent } from "../agents/agent-loader.ts"
 import { renderExamples, renderAssistantTurn } from "../agents/examples.ts"
 import type { ExampleEntry } from "../agents/example-template.ts"
-import type { ToolDef, Engine } from "../types.ts"
+import type { ToolDef, Engine, StreamGenerateRequest } from "../types.ts"
 
 import { NativeRwkvModel } from "../model/native-rwkv-model.ts"
 import { HttpModel } from "../model/http-model.ts"
@@ -318,8 +318,19 @@ async function runLive(baseDir: string, args: string[]): Promise<boolean> {
   // Same pipeline as oracle, just with the real model as the engine.
   console.error("Loading native model...")
   const stateDir = path.join(baseDir, "_gateway")
-  const engine = new NativeRwkvModel(modelPath, stateDir)
+  let engine: Engine = new NativeRwkvModel(modelPath, stateDir)
   await engine.init(gpu)
+
+  // ── Optional: `--debug` streams each token to stderr and runs the
+  //    gateway’s grammar check at the end of each request.  Useful for
+  //    pinpointing the exact token where the model diverges from the
+  //    GBNF grammar.
+  const debug = process.argv.includes("--debug")
+  if (debug) {
+    engine = wrapForDebug(engine)
+    console.error("[debug] token streaming ENABLED")
+  }
+
   const gw = await startEmbeddedGateway(engine, stateDir, modelPath)
   const model = gw.model
   activeModel = model
@@ -433,6 +444,47 @@ async function main(): Promise<number> {
 
   console.log(success ? "EVAL PASSED" : "EVAL FAILED")
   return success ? 0 : 1
+}
+
+/**
+ * Wrap any Engine with a tiny Proxy that:
+ *   • prints every token as it is streamed (via `onToken`),
+ *   • after each `streamGenerate` returns, if the caller supplied a
+ *     `grammar` option, runs the engine’s own `grammarCheck` so we can
+ *     see exactly where the grammar stopped accepting input.
+ *
+ * The proxy forwards every other method call unchanged.
+ */
+function wrapForDebug(inner: Engine): Engine {
+  // We don’t import StreamGenerateRequest here to avoid pulling
+  // types from another file when they’re already in scope.
+  return new Proxy(inner, {
+    get(target, prop, _receiver) {
+      const value = (target as any)[prop]
+      if (prop === "streamGenerate") {
+        return async (req: StreamGenerateRequest) => {
+          const wrappedToken = (tok: string) => {
+            const preview = tok.length > 60 ? tok.slice(0, 60) + "…" : tok
+            const safe = preview.replace(/\n/g, "\\n").replace(/\t/g, "\\t")
+            process.stderr.write(`[tok] ${safe}\n`)
+            req.onToken?.(tok)
+          }
+          const newReq = { ...req, onToken: wrappedToken }
+          const result = await (target as any).streamGenerate(newReq)
+          if (req.opts?.grammar) {
+            try {
+              const gc = await (target as any).grammarCheck(req.opts.grammar, result.text)
+              process.stderr.write(`[grammarCheck] ${JSON.stringify(gc)}\n`)
+            } catch (e) {
+              process.stderr.write(`[grammarCheck] n/a: ${(e as Error).message}\n`)
+            }
+          }
+          return result
+        }
+      }
+      return typeof value === "function" ? value.bind(target) : value
+    },
+  }) as Engine
 }
 
 async function sendInterrupt(sessionId = "envoy-dragons-live"): Promise<void> {
