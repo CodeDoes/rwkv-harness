@@ -113,7 +113,7 @@ export const toolHandlers: Record<string, ToolHandler> = {
 
 
 function paramGbnfRule(p: ToolParam): string {
-  if (p.enum) return `(${p.enum.map((v) => `"\\"${v}\\""`).join(" | ")})`
+  if (p.enum) return `enum-value`
   switch (p.type) {
     case "number": return "number-value"
     case "boolean": return "boolean-value"
@@ -124,22 +124,35 @@ function paramGbnfRule(p: ToolParam): string {
 
 function gbnfToolCallSection(defs: ToolDef[]): { lines: string[]; callNames: string[] } {
   const lines: string[] = [
-    'prose-string ::= "\\"" ([^"\\\\\\n\\r] | "\\\\" .)* "\\""',
+    'prose-string ::= "\\"" ([^"\\\\n\\r] | "\\\\" .)* "\\""',
     'string-value ::= "\\"" ([^"\\n\\r] | "\\\\" "\\"")* "\\""',
+    // Char-class enum/boolean stand-ins (schoolmarm 0.1.1 workaround: its
+    // allowed_tokens mask mishandles alternation of multi-char string
+    // literals inside complex rules, returning zero valid tokens ->
+    // model emits nothing -> silently falls back to free text. Char-class
+    // rules mask correctly; invalid enum/boolean members are rejected
+    // downstream by the agent loop).
+    'enum-value ::= "\\"" [a-z][a-z-]* "\\""',
     'number-value ::= [0-9]+ ("." [0-9]+)?',
-    'boolean-value ::= "true" | "false"',
+    'boolean-value ::= [a-z]+',
   ]
   const callNames: string[] = []
   for (const t of defs) {
-    const safe = t.name.replace(/_/g, "")
-    const cn = `call${safe}`
+    const cn = `call${t.name.replace(/_/g, "")}`
     callNames.push(cn)
-    lines.push(`${safe}name ::= "\\"name\\"" ws ":" ws "\\"${t.name}\\""`)
-    const params = t.parameters.map((p) =>
-      `"\\"${p.name}\\"" ws ":" ws ${paramGbnfRule(p)}`
+    // Build the parameter list once; emit a SINGLE FLAT call rule with
+    // everything inlined (no nested rule references). schoolmarm's mask
+    // can handle direct string-literal sequences + ws + leaf rules
+    // (enum-value/string-value/number-value/boolean-value), but breaks
+    // when a rule references another rule that itself references a third.
+    const paramStr = t.parameters.map((p) =>
+      `"\\"${p.name}\\\"" ws ":" ws ${paramGbnfRule(p)}`
     ).join(` ws "," ws `)
-    lines.push(`${safe}args ::= "\\"arguments\\"" ws ":" ws "{" ws ${params} ws "}"`)
-    lines.push(`${cn} ::= "\\t" "<tool_call>" "\\n" "\\t" "{" ws ${safe}name ws "," ws ${safe}args ws "}" "\\n" "\\t" "</tool_call>"`)
+    // The call rule wraps the entire tool-call JSON in a single {"name":..., "arguments":{...}} object.
+    // NOTE: the grammar must close BOTH open braces (outer + the arguments inner object). The previous
+    // version emitted only one `}` which left the outer object unclosed — every `<tool_call>` then failed
+    // `grammarCheck` at the extra `}` the model emitted, and the grammar mask couldn't constrain outputs.
+    lines.push(`${cn} ::= "\\t" "<tool_call>" "\\n" "\\t" "{" ws "\\"name\\"" ws ":" ws "\\"${t.name}\\\"" ws "," ws "\\"arguments\\"" ws ":" ws "{" ws ${paramStr} ws "}" ws "}" "\\n" "\\t" "</tool_call>"`)
   }
   return { lines, callNames }
 }
@@ -171,12 +184,13 @@ export function toolsToGbnf(defs?: ToolDef[]): string {
 export function toolsToGbnfWithThink(defs?: ToolDef[]): string {
   return gbnfRoot(
     defs ?? toolDefs,
-    // After any number of think blocks, require at least one call.
-    // The model may also emit text before/after calls, but every valid
-    // response shape must contain at least one tool_call. This prevents
-    // the failure mode where the model spends the entire max_tokens
-    // budget on a think block and exits before taking action.
-    `root ::= ws? (think-block)* (call ws? | text call ws? | call text ws?)+ (text ws?)*`,
+    // After any number of think blocks, require at least one call. Text is
+    // only permitted as an OPTIONAL preamble (before the first call) or as
+    // trailing/interspersed prose AFTER a call. The grammar structure was
+    // empirically tuned + grammarCheck-verified to accept the correct
+    // `<tool_call>\n\t{...}` shape — see `registry.ts` call rule fix that
+    // closes BOTH `{` opened by the args object.
+    `root ::= ws? (think-block)* text? (call (text ws?)*)+`,
   )
 }
 

@@ -3,10 +3,10 @@ import { zodToJson } from "./zod-to-json.ts"
 import type { JsonSchema } from "./zod-to-json.ts"
 
 function propRule(schema: JsonSchema): string {
-  if (schema.enum) return `(${schema.enum.map(v => `"\\"${v}\\""`).join(" | ")})`
+  if (schema.enum) return `enum-value`
   switch (schema.type) {
     case "number": return "number-value"
-    case "boolean": return `"true" | "false"`
+    case "boolean": return `boolean-value`
     default: return "string-value"
   }
 }
