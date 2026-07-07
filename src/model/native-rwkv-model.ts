@@ -287,6 +287,8 @@ export class NativeRwkvModel implements Engine {
     return this.streamGenerate({ ...req, onToken: undefined })
   }
 
+  private lastGrammarStr: string | undefined = undefined
+
   async streamGenerate(req: StreamGenerateRequest): Promise<GenerateResult> {
     await this.ensureGpu()
     const binding = this.ensure()
@@ -301,9 +303,21 @@ export class NativeRwkvModel implements Engine {
     const topP = opts.topP ?? DEFAULT_GEN_OPTS.topP
     const stopSequences = (opts as Record<string, unknown>).stopSequences as string[] | undefined ?? []
 
-    binding.clearGrammar()
+    // Don't clear + reset grammar on every call — the Rust binding now
+    // preserves GrammarState across infer/inferStream calls. Only update
+    // grammar when the string actually changes (which resets the state).
+    // This allows continuation across max_length boundaries to maintain
+    // the correct grammar position (e.g. mid-JSON in a tool call).
     const grammar = opts.grammar as string | undefined
-    if (grammar) binding.setGrammar(grammar)
+    if (grammar !== undefined) {
+      if (grammar !== this.lastGrammarStr) {
+        binding.setGrammar(grammar)
+        this.lastGrammarStr = grammar
+      }
+    } else {
+      binding.clearGrammar()
+      this.lastGrammarStr = undefined
+    }
 
     const bindingStopTokens = stopSequences.length > 0 ? stopSequences : undefined
 

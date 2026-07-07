@@ -1,3 +1,5 @@
+use std::sync::Mutex;
+
 use napi::bindgen_prelude::*;
 use napi::threadsafe_function::*;
 use napi_derive::napi;
@@ -69,6 +71,12 @@ pub struct RWSession {
     tokenizer: Option<Tokenizer>,
     token_strings: Vec<String>,
     grammar: Option<Grammar>,
+    /// Cached grammar string — used to detect changes across calls.
+    grammar_str: Option<String>,
+    /// Persistent grammar state across `infer`/`inferStream` calls.
+    /// Extracted at call start, returned at call end.
+    /// Reset on grammar change or `clearGrammar`.
+    grammar_state: Mutex<Option<GrammarState>>,
     /// Safetensors file cached in host RAM. Kept across unbind cycles
     /// so `bind_gpu` can rebuild the model without re-reading the disk.
     model_bytes: Option<Vec<u8>>,
@@ -88,6 +96,8 @@ impl RWSession {
             tokenizer: None,
             token_strings: Vec::new(),
             grammar: None,
+            grammar_str: None,
+            grammar_state: Mutex::new(None),
             model_bytes: None,
             model_info: None,
         })
@@ -263,15 +273,24 @@ impl RWSession {
 
     #[napi]
     pub fn set_grammar(&mut self, grammar_str: String) -> Result<()> {
+        // Same grammar string → keep grammar + grammar_state unchanged.
+        if self.grammar_str.as_deref() == Some(&grammar_str) {
+            return Ok(());
+        }
         let grammar = Grammar::new(&grammar_str)
             .map_err(|e| Error::new(Status::GenericFailure, format!("Grammar error: {}", e)))?;
         self.grammar = Some(grammar);
+        self.grammar_str = Some(grammar_str);
+        // Reset grammar state — the grammar structure changed.
+        *self.grammar_state.lock().unwrap() = None;
         Ok(())
     }
 
     #[napi]
     pub fn clear_grammar(&mut self) {
         self.grammar = None;
+        self.grammar_str = None;
+        *self.grammar_state.lock().unwrap() = None;
     }
 
     /// Tokenizer-free grammar walk. Runs `GrammarState::accept_token`
@@ -339,10 +358,28 @@ impl RWSession {
         let temperature = temperature.unwrap_or(0.8) as f32;
         let top_p = top_p.unwrap_or(0.9) as f32;
 
-        let mut grammar_state = self.grammar.as_ref()
-            .map(|g| GrammarState::new(g.clone()))
-            .transpose()
-            .map_err(|e| Error::new(Status::GenericFailure, format!("Grammar state error: {}", e)))?;
+        // Extract persisted grammar state (or initialise from stored grammar).
+        let mut grammar_state: Option<GrammarState> = {
+            let mut guard = self.grammar_state.lock().unwrap();
+            guard.take()
+        };
+
+        // Non-empty prompt tokens = a new turn with new context.
+        // Reset grammar state so the model starts from root, not from
+        // whatever mid-grammar position the previous generation left off.
+        if !tokens.is_empty() {
+            grammar_state = None;
+        }
+
+        // If grammar is set but we have no state yet, initialize fresh.
+        if grammar_state.is_none() {
+            if let Some(ref g) = self.grammar {
+                grammar_state = Some(
+                    GrammarState::new(g.clone())
+                        .map_err(|e| Error::new(Status::GenericFailure, format!("Grammar state error: {}", e)))?,
+                );
+            }
+        }
 
         let vocab_refs: Vec<&str> = self.token_strings.iter()
             .map(|s| s.as_str())
@@ -400,6 +437,8 @@ impl RWSession {
                 // Check stop sequences on first token
                 if let Some(ref stops) = stop_tokens {
                     if stops.iter().any(|s| output.ends_with(s)) {
+                        // Persist grammar state before returning.
+                        *self.grammar_state.lock().unwrap() = grammar_state;
                         return Ok(output);
                     }
                 }
@@ -457,12 +496,16 @@ impl RWSession {
             if let Some(ref stops) = stop_tokens {
                 for stop in stops {
                     if output.ends_with(stop) {
+                        // Persist grammar state before returning.
+                        *self.grammar_state.lock().unwrap() = grammar_state;
                         return Ok(output);
                     }
                 }
             }
         }
 
+        // Persist grammar state before returning (may have been truncated mid-grammar).
+        *self.grammar_state.lock().unwrap() = grammar_state;
         Ok(output)
     }
 
@@ -491,10 +534,28 @@ impl RWSession {
         let temperature = temperature.unwrap_or(0.8) as f32;
         let top_p = top_p.unwrap_or(0.9) as f32;
 
-        let mut grammar_state = self.grammar.as_ref()
-            .map(|g| GrammarState::new(g.clone()))
-            .transpose()
-            .map_err(|e| Error::new(Status::GenericFailure, format!("Grammar state error: {}", e)))?;
+        // Extract persisted grammar state (or initialise from stored grammar).
+        let mut grammar_state: Option<GrammarState> = {
+            let mut guard = self.grammar_state.lock().unwrap();
+            guard.take()
+        };
+
+        // Non-empty prompt tokens = a new turn with new context.
+        // Reset grammar state so the model starts from root, not from
+        // whatever mid-grammar position the previous generation left off.
+        if !tokens.is_empty() {
+            grammar_state = None;
+        }
+
+        // If grammar is set but we have no state yet, initialize fresh.
+        if grammar_state.is_none() {
+            if let Some(ref g) = self.grammar {
+                grammar_state = Some(
+                    GrammarState::new(g.clone())
+                        .map_err(|e| Error::new(Status::GenericFailure, format!("Grammar state error: {}", e)))?,
+                );
+            }
+        }
 
         let vocab_refs: Vec<&str> = self.token_strings.iter()
             .map(|s| s.as_str())
@@ -552,6 +613,8 @@ impl RWSession {
                 // Check stop sequences on first token
                 if let Some(ref stops) = stop_tokens {
                     if stops.iter().any(|s| output.ends_with(s)) {
+                        // Persist grammar state before returning.
+                        *self.grammar_state.lock().unwrap() = grammar_state;
                         return Ok(output);
                     }
                 }
@@ -607,11 +670,15 @@ impl RWSession {
             // Check stop sequences
             if let Some(ref stops) = stop_tokens {
                 if stops.iter().any(|s| output.ends_with(s)) {
+                    // Persist grammar state before returning.
+                    *self.grammar_state.lock().unwrap() = grammar_state;
                     return Ok(output);
                 }
             }
         }
 
+        // Persist grammar state before returning (may have been truncated mid-grammar).
+        *self.grammar_state.lock().unwrap() = grammar_state;
         Ok(output)
     }
 

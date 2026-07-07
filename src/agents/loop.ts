@@ -21,15 +21,6 @@ const AGENTS_DIR = resolve(__dirname, "../agents")
 
 const DEFAULT_SYSTEM_PREAMBLE = `You can use tools to read and write files. Output tool calls inside <tool_call> tags.`
 
-/**
- * Grammar for continuation calls (mid-tool-call JSON, max_length hit).
- * Allows ANY character — schoolmarm GBNF cannot express `</tool_call>`
- * as a single-token alternative in a subword tokenizer, so [^<]* would
- * prevent closing truncated tool calls/think blocks entirely.  By
- * letting through all characters the model can complete whatever was
- * interrupted; stop sequences bound the generation length.
- */
-const CONTINUATION_GRAMMAR = `root ::= .*`
 const DEFAULT_EXAMPLES = renderDefaultExamples()
 
 export interface AgentLoopConfig {
@@ -125,7 +116,7 @@ export class AgentLoop {
           ...DEFAULT_GEN_OPTS,
           temperature: 0.7,
           stopSequences: [...cfg.stops.list],
-          ...(continuation ? { grammar: CONTINUATION_GRAMMAR } : { grammar: toolsToGbnfWithThink(this.config.toolDefs) }),
+          grammar: toolsToGbnfWithThink(this.config.toolDefs),
           ...opts,
         },
         onToken: (token: string) => {
