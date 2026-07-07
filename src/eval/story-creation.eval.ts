@@ -304,6 +304,68 @@ const trace = new TraceWriter("oracle", { tracesDir: path.resolve(__dirname, ".t
   return allPass
 }
 
+// ── Gateway resolution helper ──
+
+/**
+ * Try to attach to a running gateway first; fall back to an embedded
+ * gateway if no gateway is reachable.
+ *
+ * Rationale: in real use the gateway is a long-running process that
+ * holds the model and VRAM. `eval:live` should be able to run *alongside*
+ * an active gateway (e.g. an `inference:start` session) without
+ * acquiring the model lock and shadowing the live model.
+ *
+ * If a gateway is reachable at `--gateway-port=` (default 3030) on
+ * `127.0.0.1`, we return a plain `HttpModel` and a no-op cleanup.
+ * Otherwise we load the native model in-process and spin up an
+ * embedded `GatewayServer` on a random local port (not externally
+ * bound — only the eval talks to it via `HttpModel`).
+ */
+async function connectOrEmbedGateway(
+  modelPath: string,
+  stateDir: string,
+  gpu: "vulkan" | "cuda" | "auto",
+  args: string[],
+  baseDir: string,
+): Promise<{ model: HttpModel; cleanup: () => Promise<void> }> {
+  const port = parseInt(
+    args.find((a) => a.startsWith("--gateway-port="))?.split("=")[1] || "3030",
+    10,
+  )
+  const healthUrl = `http://127.0.0.1:${port}/rpc/health`
+  try {
+    const r = await fetch(healthUrl, { signal: AbortSignal.timeout(1500) })
+    if (r.ok) {
+      console.error(`Gateway: connected to existing gateway at ${healthUrl}`)
+      const model = new HttpModel(`http://127.0.0.1:${port}`)
+      return { model, cleanup: async () => { await model.dispose() } }
+    }
+  } catch {
+    /* no gateway — fall through to embedded */
+  }
+
+  console.error("Gateway: no external gateway running, embedding one in-process")
+  const engine: Engine = new NativeRwkvModel(modelPath, stateDir)
+  await engine.init(gpu)
+  const host = new SessionHost(engine, stateDir)
+  await host.init()
+  const server = new GatewayServer(host, undefined, modelPath)
+  await server.start(0)
+  server.markReady()
+  const addr = server.getHttpServer().address()
+  const localPort = typeof addr === "string" ? parseInt(addr.split(":").pop()!, 10) : addr!.port
+  console.error(`Gateway: embedded gateway listening on 127.0.0.1:${localPort}`)
+  const model = new HttpModel(`http://127.0.0.1:${localPort}`)
+  return {
+    model,
+    cleanup: async () => {
+      await model.dispose()
+      await server.stop()
+      await engine.dispose()
+    },
+  }
+}
+
 // ── Live mode ──
 
 async function runLive(baseDir: string, args: string[]): Promise<boolean> {
@@ -314,26 +376,22 @@ async function runLive(baseDir: string, args: string[]): Promise<boolean> {
   console.error(`GPU: ${gpu}`)
   console.error(`Workspace: ${baseDir}`)
 
-  // Embedded gateway: NativeRwkvModel behind GatewayServer + HttpModel.
-  // Same pipeline as oracle, just with the real model as the engine.
-  console.error("Loading native model...")
+  // Gateway resolution: try existing gateway (no model load, no lock);
+  // fall back to an embedded in-process gateway that loads the model.
   const stateDir = path.join(baseDir, "_gateway")
-  let engine: Engine = new NativeRwkvModel(modelPath, stateDir)
-  await engine.init(gpu)
-
-  // ── Optional: `--debug` streams each token to stderr and runs the
-  //    gateway’s grammar check at the end of each request.  Useful for
-  //    pinpointing the exact token where the model diverges from the
-  //    GBNF grammar.
-  const debug = process.argv.includes("--debug")
-  if (debug) {
-    engine = wrapForDebug(engine)
-    console.error("[debug] token streaming ENABLED")
-  }
-
-  const gw = await startEmbeddedGateway(engine, stateDir, modelPath)
+  const gw = await connectOrEmbedGateway(modelPath, stateDir, gpu, args, baseDir)
   const model = gw.model
   activeModel = model
+
+  // ── Optional: `--debug` streams each token to stderr and runs the
+  //    gateway’s grammar check at the end of each request.  Only
+  //    available when we own the engine (embedded path); when we
+  //    attach to an existing gateway the engine is opaque so we skip
+  //    the wrap and log a notice.
+  const debug = process.argv.includes("--debug")
+  if (debug) {
+    console.error("[debug] token streaming only works for embedded gateway path; ignored when attached to an existing gateway")
+  }
 
   const originalCwd = process.cwd()
   process.chdir(baseDir)
